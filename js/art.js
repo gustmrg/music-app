@@ -1,12 +1,19 @@
 /* ── Procedural artwork: abstract covers/banners drawn on canvas (all original) ── */
 "use strict";
 
+import { PALETTES, mulberry32 } from "./data.js";
+
 const ART_CACHE = {};
 
-function palOf(i) { return PALETTES[(i ?? 0) % PALETTES.length]; }
+export function palOf(i) { return PALETTES[(i ?? 0) % PALETTES.length]; }
 
 /* Deterministic abstract cover art. */
-function coverArt(seed, palIdx, { big = false, text = null, banner = false, cta = null, sub = null, vinyl = false } = {}) {
+/**
+ * @param {number} seed
+ * @param {number} palIdx
+ * @param {{ big?: boolean, text?: string[] | null, banner?: boolean, cta?: string | null, sub?: string | null, vinyl?: boolean }} [options]
+ */
+export function coverArt(seed, palIdx, { big = false, text = null, banner = false, cta = null, sub = null, vinyl = false } = {}) {
   const key = `${seed}|${palIdx}|${big ? 1 : 0}|${text ? text.join("_") : ""}|${banner ? 1 : 0}|${cta || ""}|${sub || ""}|${vinyl ? 1 : 0}`;
   if (ART_CACHE[key]) return ART_CACHE[key];
 
