@@ -1,23 +1,23 @@
 # Releases
 
-As releases são geradas pelo workflow [Desktop release](../.github/workflows/release.yml), disparado manualmente. Os instaladores não são assinados; veja [Instalação](installation.md#aplicativo-sem-assinatura).
+Releases are produced by the [Desktop release](../.github/workflows/release.yml) workflow, which is triggered manually. The installers are not signed; see [Installation](installation.md#unsigned-app).
 
-## Publicar uma versão
+## Publishing a version
 
-1. Confirme que o CI da `main` está verde.
-2. Em **Actions → Desktop release → Run workflow**, escolha a branch `main` e informe a versão: `patch`, `minor`, `major` ou uma versão exata como `0.3.0`.
-3. Aguarde os jobs terminarem. A release aparece em **Releases**.
+1. Confirm that CI on `main` is green.
+2. Go to **Actions → Desktop release → Run workflow**, choose the `main` branch, and enter the version: `patch`, `minor`, `major`, or an exact version such as `0.3.0`.
+3. Wait for the jobs to finish. The release appears under **Releases**.
 
-O `package.json` fica em `0.0.0` até a primeira release, e depois sempre na última versão publicada, porque o workflow commita o bump. A primeira release é a `0.1.0`: informe `minor`. Depois dela, `patch` gera `0.1.1`, `minor` gera `0.2.0` e `major` gera `1.0.0`.
+`package.json` stays at `0.0.0` until the first release, and afterwards always at the last published version, because the workflow commits the bump. The first release is `0.1.0`: enter `minor`. After it, `patch` produces `0.1.1`, `minor` produces `0.2.0`, and `major` produces `1.0.0`.
 
-## O que o workflow faz
+## What the workflow does
 
-1. **version** resolve a versão a partir de `package.json`, recusa tag já existente e prerelease, e descobre a tag anterior para as notas.
-2. **verify** (`typecheck`, `test`, `build`) e **package** rodam em paralelo. O `package` gera DMG (macOS arm64), NSIS (Windows x64) e AppImage e deb (Linux x64).
-3. **release** só roda se os dois passarem. Ele commita o bump de versão (`chore(release): prepare v<versão>`) na `main`, cria a tag `v<versão>`, gera o `SHA256SUMS.txt`, cria a release como rascunho com as notas automáticas, envia os arquivos e só então a publica.
+1. **version** resolves the version from `package.json`, rejects an existing tag or a prerelease, and finds the previous tag for the release notes.
+2. **verify** (`typecheck`, `test`, `build`) and **package** run in parallel. `package` produces a DMG (macOS arm64), NSIS (Windows x64), and AppImage and deb (Linux x64).
+3. **release** runs only if both pass. It commits the version bump (`chore(release): prepare v<version>`) to `main`, creates the `v<version>` tag, generates `SHA256SUMS.txt`, creates the release as a draft with automatic notes, uploads the files, and only then publishes it.
 
-Se qualquer etapa falhar antes do job `release`, nada é commitado nem tagueado.
+If any step fails before the `release` job, nothing is committed or tagged.
 
-## Proteção da main
+## Protecting main
 
-O job `release` envia o commit de versão e a tag diretamente para a `main` com o `GITHUB_TOKEN`. Se a `main` tiver um ruleset exigindo pull request, esse push é recusado. Nesse caso, crie uma deploy key com escrita, adicione-a como *bypass actor* do ruleset, guarde a chave privada no secret `RELEASE_DEPLOY_KEY` e passe `ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}` no `actions/checkout` do job `release`.
+The `release` job pushes the version commit and the tag directly to `main` with the `GITHUB_TOKEN`. If `main` has a ruleset that requires pull requests, that push is rejected. In that case, create a deploy key with write access, add it as a bypass actor of the ruleset, store the private key in the `RELEASE_DEPLOY_KEY` secret, and pass `ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}` to the `actions/checkout` step of the `release` job.

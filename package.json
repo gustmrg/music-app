@@ -1,7 +1,7 @@
 {
   "name": "cloud-music-desktop",
   "version": "0.0.0",
-  "description": "Player desktop de músicas e playlists locais.",
+  "description": "Desktop player for your local music and playlists.",
   "homepage": "https://github.com/gustmrg/music-app#readme",
   "author": "Gustavo Miranda",
   "private": true,
@@ -69,7 +69,7 @@
       ],
       "category": "AudioVideo",
       "maintainer": "Gustavo Miranda",
-      "synopsis": "Player de músicas e playlists locais."
+      "synopsis": "Player for your local music and playlists."
     }
   }
 }

@@ -1,27 +1,29 @@
 # Local Music
 
-Um player de música para o desktop que toca o que já é seu: os arquivos do seu computador e os links do YouTube que você colar. Sem conta, sem assinatura, sem recomendações e sem catálogo de terceiros. Sua biblioteca começa vazia e só tem o que você escolher adicionar.
+**English** | [Português (Brasil)](README.pt-BR.md)
+
+A desktop music player for what is already yours: the files on your computer and the YouTube links you paste. No account, no subscription, no recommendations, and no third-party catalog. Your library starts empty and only holds what you choose to add.
 
 > [!NOTE]
-> Projeto pessoal em desenvolvimento inicial (versões 0.x). Funciona, mas ainda muda bastante.
+> Personal project in early development (0.x versions). It works, but it still changes a lot.
 
-## O que ele faz
+## What it does
 
-- **Biblioteca local:** adicione arquivos ou pastas inteiras (MP3, FLAC, WAV, OGG, Opus, M4A, AAC e WebM) e navegue por Biblioteca, Pastas, Favoritos e Recentes.
-- **Playlists suas:** crie, reordene e exporte em M3U8; importe M3U/M3U8 que você já tem.
-- **Fila e player completos:** busca na faixa, volume, repetição, aleatório e uma fila temporária que você pode salvar como playlist.
-- **YouTube sem download:** cole links de vídeos ou playlists e ouça por streaming, resolvido no momento em que a faixa toca.
-- **Seus arquivos intactos:** nada é copiado, movido, editado nem excluído.
-- **Privado por padrão:** tudo fica em um arquivo local, sem serviço remoto nem telemetria.
+- **Local library:** add files or whole folders (MP3, FLAC, WAV, OGG, Opus, M4A, AAC, and WebM) and browse them by Library, Folders, Favorites, and Recents.
+- **Your own playlists:** create, reorder, and export to M3U8; import the M3U/M3U8 files you already have.
+- **Full player and queue:** seeking, volume, repeat, shuffle, and a temporary queue you can save as a playlist.
+- **YouTube without downloads:** paste video or playlist links and listen by streaming, resolved the moment a track plays.
+- **Your files stay intact:** nothing is copied, moved, edited, or deleted.
+- **Private by default:** everything lives in a local file, with no remote service or telemetry.
 
-## Instalação
+## Installation
 
-Baixe o instalador da página de [Releases](https://github.com/gustmrg/music-app/releases) (macOS arm64, Windows x64 e Linux x64).
+Download the installer from the [Releases](https://github.com/gustmrg/music-app/releases) page (macOS arm64, Windows x64, and Linux x64).
 
 > [!IMPORTANT]
-> Os aplicativos **não são assinados**. O macOS e o Windows mostram um aviso na primeira abertura; veja como liberar em [Instalação](docs/installation.md#aplicativo-sem-assinatura).
+> The apps are **not signed**. macOS and Windows show a warning the first time you open them; see how to allow the app in [Installation](docs/installation.md#unsigned-app).
 
-## Rodando a partir do código
+## Running from source
 
 ```bash
 npm install
@@ -29,16 +31,18 @@ npm run dev          # Vite + Electron
 npm test
 ```
 
-Requer Node.js 22 ou superior. As mudanças entram por pull request.
+Requires Node.js 22 or later. Changes go in through pull requests.
 
-## Direção
+## Direction
 
-O foco é ser um player local simples e rápido. Ficaram de fora da primeira versão, e são os candidatos naturais para as próximas: leitura de tags de artista e álbum, capas embutidas, monitoramento automático de pastas, equalizador e letras. O escopo completo está no [SPEC](SPEC.md).
+The goal is to be a simple, fast local player. Left out of the first version, and the natural candidates for what comes next: reading artist and album tags, embedded cover art, automatic folder watching, an equalizer, and lyrics. The full scope is in the [SPEC](SPEC.md).
 
-## Documentação
+## Documentation
 
-- [Instalação](docs/installation.md): downloads, aplicativo sem assinatura, atualizações e YouTube.
-- [Uso](docs/usage.md): biblioteca, playlists, fila, YouTube e limites desta versão.
-- [Desenvolvimento](docs/development.md): scripts, estrutura do projeto e segurança.
-- [Releases](docs/releasing.md): como publicar uma versão.
-- [SPEC](SPEC.md): escopo da interface e do comportamento.
+- [Installation](docs/installation.md): downloads, the unsigned app, updates, and YouTube.
+- [Usage](docs/usage.md): library, playlists, queue, YouTube, and the limits of this version.
+- [Development](docs/development.md): scripts, project layout, and security.
+- [Releases](docs/releasing.md): how to publish a version.
+- [SPEC](SPEC.md): scope of the interface and behavior.
+
+The documentation is in English. Only the README is also available in Portuguese.

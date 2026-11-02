@@ -1,26 +1,26 @@
-# Local Music — escopo da interface
+# Local Music — interface scope
 
-## Objetivo
+## Goal
 
-Acessar músicas e playlists do próprio computador. Sem serviço remoto, conta, assinatura, anúncios, feed social ou catálogo fictício.
+Access the music and playlists on your own computer. No remote service, account, subscription, ads, social feed, or fictional catalog.
 
 ## Layout
 
-- Tema escuro com destaque vermelho, preservando a identidade visual do protótipo.
-- Barra lateral: Biblioteca, Pastas, Playlists, Favoritos e Recentes; playlists pessoais abaixo.
-- Topo: busca por nome de música, arquivo ou pasta; abrir arquivos; adicionar pasta; controles de janela no desktop.
-- Conteúdo: listas de arquivos ou coleções de pastas/playlists. Sem conteúdo inventado quando a biblioteca está vazia.
-- Player fixo no rodapé: faixa atual, favorito, volume, progresso real, reprodução/pausa, anterior/próxima, modos de reprodução e fila.
-- Painéis laterais para fila e edição de playlists, com rótulos acessíveis e navegação por teclado.
+- Dark theme with a red accent, keeping the visual identity of the prototype.
+- Sidebar: Library, Folders, Playlists, Favorites, and Recents; personal playlists below.
+- Top bar: search by track, file, or folder name; open files; add folder; window controls on desktop.
+- Content: lists of files or collections of folders/playlists. No invented content when the library is empty.
+- Fixed player at the bottom: current track, favorite, volume, real progress, play/pause, previous/next, playback modes, and queue.
+- Side panels for the queue and playlist editing, with accessible labels and keyboard navigation.
 
-## Comportamento
+## Behavior
 
-A biblioteca começa vazia. Apenas seleções explícitas de arquivos/pastas/playlists locais adicionam músicas. Adicionar a mesma pasta não duplica referências. Pastas são agrupadas pela localização real dos arquivos.
+The library starts empty. Only explicit selections of local files, folders, and playlists add tracks. Adding the same folder does not duplicate references. Folders are grouped by the real location of the files.
 
-Favoritos, recentes, volume e playlists persistem no desktop. A fila é temporária. Playlists salvas podem ser reordenadas sem alterar a fila em execução. Excluir uma playlist ou limpar a fila nunca exclui arquivos de música.
+Favorites, recents, volume, and playlists persist on desktop. The queue is temporary. Saved playlists can be reordered without changing the queue that is playing. Deleting a playlist or clearing the queue never deletes music files.
 
-Reprodução em ordem para no fim da fila; repetir fila retorna ao começo; repetir música reinicia a faixa; aleatório escolhe outra faixa quando há mais de uma disponível. Pausar preserva a posição. O progresso e a duração vêm do áudio real.
+In-order playback stops at the end of the queue; repeat queue returns to the start; repeat track restarts the track; shuffle picks another track when more than one is available. Pausing preserves the position. Progress and duration come from the real audio.
 
-Arquivos inacessíveis e formatos incompatíveis geram mensagens, sem áudio de demonstração como substituto. Importação ignora referências remotas e informa itens ignorados. Na prévia web, a interface informa que os arquivos duram apenas durante a sessão.
+Inaccessible files and unsupported formats produce messages, with no demo audio as a substitute. Import ignores remote references and reports the skipped items. In the web preview, the interface says that files last only for the session.
 
-Leitura de tags, capas embutidas, monitoramento de pastas, equalizador e letras ficam fora desta primeira versão. O protótipo anterior está preservado no histórico Git.
+Reading tags, embedded cover art, folder watching, an equalizer, and lyrics are outside this first version. The previous prototype is preserved in the Git history.
