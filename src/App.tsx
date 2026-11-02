@@ -1,0 +1,200 @@
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
+import { ArrowDown, ArrowUp, Clock3, FileAudio, Folder, FolderPlus, Heart, Library as LibraryIcon, ListMusic, Maximize2, Minus, Music2, Pencil, Play, Plus, Search, Trash2, Upload, X, Youtube } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { Player, type PlayMode } from "@/components/Player"
+import { audioExtensions, emptyLibrary, filterTracks, folderName, type ImportResult, type Library, type Playlist, type Track } from "@/library"
+
+type View = "library" | "folders" | "playlists" | "liked" | "recent"
+const navigation = [
+  { id: "library", label: "Biblioteca", icon: LibraryIcon },
+  { id: "folders", label: "Pastas", icon: Folder },
+  { id: "playlists", label: "Playlists", icon: ListMusic },
+  { id: "liked", label: "Favoritos", icon: Heart },
+  { id: "recent", label: "Recentes", icon: Clock3 },
+] as const
+
+export default function App() {
+  const [library, setLibrary] = useState<Library>(emptyLibrary)
+  const [loaded, setLoaded] = useState(!window.desktop)
+  const [view, setView] = useState<View>("library")
+  const [folder, setFolder] = useState<string | null>(null)
+  const [playlistId, setPlaylistId] = useState("")
+  const [search, setSearch] = useState("")
+  const query = useDeferredValue(search)
+  const [queue, setQueue] = useState<string[]>([])
+  const [selection, setSelection] = useState({ id: "", request: 0 })
+  const [mode, setMode] = useState<PlayMode>("order")
+  const [queueOpen, setQueueOpen] = useState(false)
+  const [editor, setEditor] = useState<Playlist | null>(null)
+  const [editorSearch, setEditorSearch] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState("")
+  const [youtubeOpen, setYoutubeOpen] = useState(false)
+  const [youtubeText, setYoutubeText] = useState("")
+  const [youtubeName, setYoutubeName] = useState("")
+  const filesInput = useRef<HTMLInputElement>(null)
+  const folderInput = useRef<HTMLInputElement>(null)
+  const browserTracks = useRef(new Map<string, Track>())
+  const notify = useCallback((message: string) => setNotice(message), [])
+
+  useEffect(() => {
+    let active = true
+    if (window.desktop) void window.desktop.loadLibrary().then((value) => { if (active) { setLibrary(value); setLoaded(true) } }).catch(() => notify("Não foi possível carregar a biblioteca. Os dados salvos foram preservados; reabra o aplicativo para tentar novamente."))
+    return () => { active = false }
+  }, [notify])
+
+  const { liked, recent, playlists, volume } = library
+  useEffect(() => {
+    if (loaded && window.desktop) void window.desktop.savePreferences({ liked, recent, playlists, volume }).catch(() => notify("Não foi possível salvar as alterações da biblioteca neste computador."))
+  }, [loaded, liked, recent, playlists, volume, notify])
+
+  useEffect(() => () => { for (const track of browserTracks.current.values()) if (track.url) URL.revokeObjectURL(track.url) }, [])
+
+  const trackMap = useMemo(() => new Map(library.tracks.map((track) => [track.id, track])), [library.tracks])
+  const likedIds = useMemo(() => new Set(liked), [liked])
+  const selectedPlaylist = playlists.find((playlist) => playlist.id === playlistId)
+  const fromIds = (ids: string[]) => ids.flatMap((id) => { const track = trackMap.get(id); return track ? [track] : [] })
+  const visibleTracks = useMemo(() => {
+    let items = library.tracks
+    if (view === "liked") items = items.filter((track) => likedIds.has(track.id))
+    else if (view === "recent") items = recent.flatMap((id) => trackMap.get(id) ? [trackMap.get(id)!] : [])
+    else if (view === "folders" && folder !== null) items = items.filter((track) => track.folder === folder)
+    else if (view === "playlists" && selectedPlaylist) items = selectedPlaylist.trackIds.flatMap((id) => trackMap.get(id) ? [trackMap.get(id)!] : [])
+    return filterTracks(items, query)
+  }, [library.tracks, view, likedIds, recent, trackMap, folder, selectedPlaylist, query])
+  const folders = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const track of library.tracks) counts.set(track.folder, (counts.get(track.folder) ?? 0) + 1)
+    return [...counts].sort(([a], [b]) => a.localeCompare(b, "pt-BR"))
+  }, [library.tracks])
+
+  const navigate = (next: View) => { setView(next); setFolder(null); setPlaylistId(""); setSearch("") }
+  const play = (id: string, ids?: string[]) => {
+    if (ids) setQueue(ids)
+    setSelection((previous) => ({ id, request: previous.request + 1 }))
+  }
+  const toggleLike = (id: string) => setLibrary((value) => ({ ...value, liked: value.liked.includes(id) ? value.liked.filter((item) => item !== id) : [...value.liked, id] }))
+  const started = useCallback((id: string) => setLibrary((value) => value.recent[0] === id ? value : { ...value, recent: [id, ...value.recent.filter((item) => item !== id)].slice(0, 100) }), [])
+  const next = (ended = false) => {
+    if (!queue.length) return
+    const index = queue.indexOf(selection.id)
+    if (mode === "order" && ended && index === queue.length - 1) return
+    let target = (index + 1) % queue.length
+    if (mode === "shuffle" && queue.length > 1) target = (index + 1 + Math.floor(Math.random() * (queue.length - 1))) % queue.length
+    play(queue[target])
+  }
+
+  const acceptImport = (result: ImportResult) => {
+    setLibrary((value) => ({ ...value, tracks: result.tracks, playlists: result.playlist ? [...value.playlists, result.playlist] : value.playlists }))
+    if (result.playlist) { setView("playlists"); setPlaylistId(result.playlist.id); setSearch("") }
+    notify(`${result.imported.length} música(s) lida(s).${result.skipped ? ` ${result.skipped} item(ns) indisponível(is) ou não local(is) ignorado(s).` : ""}`)
+  }
+  const importLocal = async (kind: "files" | "folder" | "playlist") => {
+    if (!window.desktop) { if (kind === "files") filesInput.current?.click(); else if (kind === "folder") folderInput.current?.click(); return }
+    setBusy(true)
+    try {
+      const result = await (kind === "files" ? window.desktop.openFiles() : kind === "folder" ? window.desktop.openFolder() : window.desktop.importPlaylist())
+      if (result) acceptImport(result)
+    } catch { notify("Não foi possível ler a seleção. Verifique as permissões e tente novamente.") }
+    finally { setBusy(false) }
+  }
+  const addYoutube = async () => {
+    if (!window.desktop || !youtubeText.trim()) return
+    setBusy(true)
+    try {
+      const result = await window.desktop.addYoutube(youtubeText, youtubeName)
+      acceptImport(result)
+      setYoutubeOpen(false); setYoutubeText(""); setYoutubeName("")
+    } catch (error) {
+      notify(error instanceof Error && error.message ? error.message : "Não foi possível ler os links do YouTube.")
+    } finally { setBusy(false) }
+  }
+  const importBrowserFiles = (files: FileList | null) => {
+    if (!files) return
+    let count = 0
+    for (const file of Array.from(files)) {
+      if (!audioExtensions.test(file.name)) continue
+      const location = file.webkitRelativePath || file.name
+      const id = `${location}:${file.size}:${file.lastModified}`
+      if (!browserTracks.current.has(id)) browserTracks.current.set(id, { id, path: location, title: file.name.replace(audioExtensions, ""), folder: location.includes("/") ? location.slice(0, location.lastIndexOf("/")) : "", format: file.name.split(".").pop()!.toUpperCase(), url: URL.createObjectURL(file) })
+      count++
+    }
+    setLibrary((value) => ({ ...value, tracks: [...browserTracks.current.values()] }))
+    notify(`${count} música(s) disponível(is) nesta sessão. Use o aplicativo desktop para manter a biblioteca salva.`)
+  }
+  const openEditor = (playlist?: Playlist, ids: string[] = []) => {
+    setEditorSearch("")
+    setEditor(playlist ? { ...playlist, trackIds: [...playlist.trackIds] } : { id: crypto.randomUUID(), name: "", trackIds: [...ids] })
+  }
+  const savePlaylist = () => {
+    if (!editor?.name.trim()) return
+    const edited = { ...editor, name: editor.name.trim() }
+    setLibrary((value) => ({ ...value, playlists: value.playlists.some((item) => item.id === edited.id) ? value.playlists.map((item) => item.id === edited.id ? edited : item) : [...value.playlists, edited] }))
+    setView("playlists"); setPlaylistId(edited.id); setSearch(""); setEditor(null)
+  }
+  const reorder = (id: string, step: number) => {
+    if (!selectedPlaylist) return
+    const ids = [...selectedPlaylist.trackIds]
+    const index = ids.indexOf(id)
+    const target = index + step
+    if (target < 0 || target >= ids.length) return
+    ;[ids[index], ids[target]] = [ids[target], ids[index]]
+    setLibrary((value) => ({ ...value, playlists: value.playlists.map((item) => item.id === selectedPlaylist.id ? { ...item, trackIds: ids } : item) }))
+  }
+  const exportPlaylist = async () => {
+    if (!window.desktop || !selectedPlaylist) return
+    setBusy(true)
+    try { if (await window.desktop.exportPlaylist(selectedPlaylist.trackIds)) notify("Playlist exportada. Nenhum arquivo de música foi copiado.") }
+    catch { notify("Não foi possível exportar. Escolha um arquivo .m3u8 em uma pasta gravável.") }
+    finally { setBusy(false) }
+  }
+
+  const visibleFolders = folders.filter(([name]) => name.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
+  const visiblePlaylists = playlists.filter((item) => item.name.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
+  const showFolders = view === "folders" && folder === null
+  const showPlaylists = view === "playlists" && !selectedPlaylist
+  const title = selectedPlaylist && view === "playlists" ? selectedPlaylist.name : folder !== null && view === "folders" ? folderName(folder) : navigation.find((item) => item.id === view)!.label
+
+  return <div className="app-shell">
+    <input ref={filesInput} type="file" accept=".mp3,.wav,.flac,.ogg,.opus,.m4a,.aac,.webm" multiple hidden onChange={(event) => { importBrowserFiles(event.target.files); event.target.value = "" }} />
+    <input ref={folderInput} type="file" multiple hidden {...{ webkitdirectory: "" }} onChange={(event) => { importBrowserFiles(event.target.files); event.target.value = "" }} />
+    <aside className="sidebar">
+      <div className="brand window-drag"><span className="brand-icon"><Music2 size={20} /></span>Local Music</div>
+      <div className="sidebar-label">SUA MÚSICA</div>
+      <nav aria-label="Navegação principal">{navigation.map(({ id, label, icon: Icon }) => <Button key={id} variant="ghost" className={`nav-item ${view === id ? "active" : ""}`} aria-current={view === id ? "page" : undefined} onClick={() => navigate(id)}><Icon size={18} />{label}{id === "library" ? <span className="nav-count">{library.tracks.length}</span> : null}</Button>)}</nav>
+      <div className="sidebar-label playlist-label"><span>SUAS PLAYLISTS</span><Button variant="ghost" size="icon-xs" aria-label="Criar playlist" disabled={!loaded} onClick={() => openEditor()}><Plus size={15} /></Button></div>
+      <div className="sidebar-playlists">{playlists.length ? playlists.map((playlist) => <button key={playlist.id} className={`sidebar-playlist ${playlistId === playlist.id ? "selected" : ""}`} onClick={() => { navigate("playlists"); setPlaylistId(playlist.id) }}><ListMusic size={16} /><span>{playlist.name}</span></button>) : <p className="sidebar-hint">Suas seleções, do seu jeito.</p>}</div>
+      <div className="sidebar-bottom"><span className="status-dot" />{window.desktop ? "Biblioteca local" : "Prévia no navegador"}<small>Sem conta. Sem streaming.</small></div>
+    </aside>
+    <main className="main">
+      <header className="topbar window-drag" onDoubleClick={() => window.desktop?.toggleMaximize()}>
+        <label className="search-box"><Search size={17} /><Input aria-label="Buscar músicas" placeholder="Buscar por música, arquivo ou pasta" value={search} onChange={(event) => setSearch(event.target.value)} />{search ? <Button variant="ghost" size="icon-xs" aria-label="Limpar busca" onClick={() => setSearch("")}><X size={14} /></Button> : null}</label>
+        <div className="topbar-actions">{window.desktop ? <Button variant="outline" disabled={busy || !loaded} onClick={() => setYoutubeOpen(true)}><Youtube size={16} />YouTube</Button> : null}<Button variant="outline" disabled={busy || !loaded} onClick={() => void importLocal("files")}><FileAudio size={16} />Abrir arquivos</Button><Button disabled={busy || !loaded} onClick={() => void importLocal("folder")}><FolderPlus size={16} />Adicionar pasta</Button></div>
+        {window.desktop ? <div className="window-controls"><Button variant="ghost" size="icon-xs" aria-label="Minimizar" onClick={() => window.desktop?.minimize()}><Minus /></Button><Button variant="ghost" size="icon-xs" aria-label="Maximizar" onClick={() => window.desktop?.toggleMaximize()}><Maximize2 /></Button><Button variant="ghost" size="icon-xs" aria-label="Fechar janela" onClick={() => window.desktop?.close()}><X /></Button></div> : null}
+      </header>
+      <section className="content" aria-busy={busy || !loaded}>
+        {!window.desktop ? <p className="browser-notice">No navegador, os arquivos ficam disponíveis apenas nesta sessão. No desktop, sua biblioteca e playlists ficam salvas.</p> : null}
+        {notice ? <div className="notice" role="status"><span>{notice}</span><Button variant="ghost" size="icon-xs" aria-label="Fechar aviso" onClick={() => setNotice("")}><X /></Button></div> : null}
+        <div className="page-heading"><div><p className="eyebrow">{selectedPlaylist ? "PLAYLIST LOCAL" : "DO SEU COMPUTADOR"}</p><h1>{title}</h1><p className="page-subtitle">{busy ? "Lendo arquivos…" : !loaded ? "Carregando biblioteca…" : showFolders ? `${folders.length} pasta(s) com músicas` : showPlaylists ? `${playlists.length} playlist(s) salvas` : `${visibleTracks.length} música(s)`}</p></div>
+          <div className="page-actions">{showPlaylists ? <><Button disabled={!loaded} onClick={() => openEditor()}><Plus />Nova playlist</Button>{window.desktop ? <Button variant="outline" disabled={busy || !loaded} onClick={() => void importLocal("playlist")}><Upload />Importar M3U</Button> : null}</> : !showFolders ? <><Button disabled={!visibleTracks.length} onClick={() => play(visibleTracks[0].id, visibleTracks.map((track) => track.id))}><Play fill="currentColor" />Reproduzir</Button>{selectedPlaylist ? <><Button variant="outline" onClick={() => openEditor(selectedPlaylist)}><Pencil />Editar</Button>{window.desktop ? <Button variant="outline" disabled={busy} onClick={() => void exportPlaylist()}><Upload />Exportar</Button> : null}</> : <Button variant="outline" disabled={!visibleTracks.length} onClick={() => openEditor(undefined, visibleTracks.map((track) => track.id))}><Plus />Salvar playlist</Button>}</> : null}</div>
+        </div>
+        {showFolders ? <div className="collection-grid">{visibleFolders.map(([name, count]) => <button className="collection-card" key={name} onClick={() => { setFolder(name); setSearch("") }}><Folder size={30} /><strong>{folderName(name)}</strong><span title={name}>{name || "Arquivos avulsos"}</span><small>{count} música(s)</small></button>)}</div> : showPlaylists ? <div className="collection-grid">{visiblePlaylists.map((playlist) => <button className="collection-card" key={playlist.id} onClick={() => { setPlaylistId(playlist.id); setSearch("") }}><ListMusic size={30} /><strong>{playlist.name}</strong><small>{playlist.trackIds.length} música(s)</small></button>)}</div> : visibleTracks.length ? <div className="track-table" role="table" aria-label="Músicas">
+          <div className="track-table-head" role="row"><span role="columnheader">#</span><span role="columnheader">Música</span><span role="columnheader">Pasta</span><span role="columnheader">Formato</span><span role="columnheader" className="sr-only">Ações</span></div>
+          {visibleTracks.map((track, index) => <div role="row" key={track.id} className={`track-row ${selection.id === track.id ? "current" : ""}`}>
+            <div role="cell"><Button variant="ghost" size="icon" aria-label={`Reproduzir ${track.title}`} onClick={() => play(track.id, visibleTracks.map((item) => item.id))}><span className="track-number">{String(index + 1).padStart(2, "0")}</span><Play className="row-play" size={15} /></Button></div>
+            <div role="cell" className="track-name"><div className="cover-placeholder small"><Music2 size={18} /></div><button className="track-title" title={track.path} onClick={() => play(track.id, visibleTracks.map((item) => item.id))}>{track.title}</button></div>
+            <span role="cell" className="track-folder" title={track.folder}>{folderName(track.folder)}</span><span role="cell" className="track-format">{track.format}</span>
+            <div role="cell" className="track-actions">{selectedPlaylist ? <><Button variant="ghost" size="icon-xs" disabled={selectedPlaylist.trackIds.indexOf(track.id) === 0} aria-label={`Mover ${track.title} para cima`} onClick={() => reorder(track.id, -1)}><ArrowUp /></Button><Button variant="ghost" size="icon-xs" disabled={selectedPlaylist.trackIds.indexOf(track.id) === selectedPlaylist.trackIds.length - 1} aria-label={`Mover ${track.title} para baixo`} onClick={() => reorder(track.id, 1)}><ArrowDown /></Button></> : null}<Button variant="ghost" size="icon" aria-label={`${likedIds.has(track.id) ? "Desfavoritar" : "Favoritar"} ${track.title}`} aria-pressed={likedIds.has(track.id)} className={likedIds.has(track.id) ? "accent" : ""} onClick={() => toggleLike(track.id)}><Heart size={16} fill={likedIds.has(track.id) ? "currentColor" : "none"} /></Button></div>
+          </div>)}
+        </div> : null}
+        {((showFolders && !visibleFolders.length) || (showPlaylists && !visiblePlaylists.length) || (!showFolders && !showPlaylists && !visibleTracks.length)) ? <div className="empty-state"><div className="empty-icon">{view === "liked" ? <Heart /> : view === "playlists" ? <ListMusic /> : <Music2 />}</div><h2>{query ? "Nenhum resultado encontrado" : view === "liked" ? "Guarde suas favoritas aqui" : view === "recent" ? "Sua próxima música começa aqui" : showPlaylists ? "Uma playlist para cada momento" : selectedPlaylist ? "Essa playlist ainda está vazia" : "Sua música, no seu espaço"}</h2><p>{query ? "Tente outro nome de música ou pasta." : view === "liked" ? "Use o coração ao lado de uma música para adicioná-la." : view === "recent" ? "As músicas que você ouvir aparecerão aqui." : showPlaylists ? "Crie uma seleção ou importe uma playlist local no aplicativo desktop." : selectedPlaylist ? "Clique em Editar para escolher músicas da biblioteca." : "Adicione uma pasta ou abra seus arquivos para começar. Seus arquivos continuam onde estão."}</p>{view === "library" && !query ? <Button disabled={busy || !loaded} onClick={() => void importLocal("folder")}><FolderPlus />Adicionar sua primeira pasta</Button> : null}</div> : null}
+      </section>
+    </main>
+    <Player track={trackMap.get(selection.id)} request={selection.request} liked={likedIds.has(selection.id)} volume={volume} mode={mode} onVolume={(value) => setLibrary((previous) => ({ ...previous, volume: value }))} onMode={setMode} onLike={() => toggleLike(selection.id)} onNext={next} onPrevious={() => { if (queue.length) play(queue[(queue.indexOf(selection.id) - 1 + queue.length) % queue.length]) }} onQueue={() => setQueueOpen(true)} onStarted={started} onError={notify} />
+    <Sheet open={queueOpen} onOpenChange={setQueueOpen}><SheetContent className="local-sheet"><SheetHeader><SheetTitle>Fila de reprodução</SheetTitle><SheetDescription>{queue.length} música(s) · independente das playlists salvas</SheetDescription></SheetHeader><div className="sheet-actions"><Button variant="outline" disabled={!queue.length} onClick={() => { setQueueOpen(false); openEditor(undefined, queue) }}><Plus />Salvar playlist</Button><Button variant="ghost" disabled={!queue.length} onClick={() => { setQueue([]); setSelection((value) => ({ id: "", request: value.request + 1 })) }}><Trash2 />Limpar fila</Button></div><div className="sheet-list">{fromIds(queue).map((track) => <div key={track.id} className="queue-row"><button className={selection.id === track.id ? "accent" : ""} onClick={() => play(track.id)}><Music2 size={16} /><span>{track.title}</span></button><Button variant="ghost" size="icon-xs" aria-label={`Remover ${track.title} da fila`} onClick={() => { setQueue((ids) => ids.filter((id) => id !== track.id)); if (selection.id === track.id) setSelection((value) => ({ id: "", request: value.request + 1 })) }}><X /></Button></div>)}{!queue.length ? <p className="muted">Reproduza uma música para começar uma fila.</p> : null}</div></SheetContent></Sheet>
+    <Sheet open={youtubeOpen} onOpenChange={setYoutubeOpen}><SheetContent className="local-sheet"><SheetHeader><SheetTitle>Adicionar do YouTube</SheetTitle><SheetDescription>Cole links de vídeos ou playlists do YouTube, um por linha. O yt-dlp lê os metadados; nenhum vídeo é baixado e o áudio é transmitido na hora da reprodução.</SheetDescription></SheetHeader>{youtubeOpen ? <form className="playlist-form" onSubmit={(event) => { event.preventDefault(); void addYoutube() }}><label>Nome da playlist (opcional)<Input maxLength={120} value={youtubeName} onChange={(event) => setYoutubeName(event.target.value)} placeholder="Usado quando o envio tem vários vídeos" /></label><label>Links<textarea required rows={8} className="youtube-links" aria-label="Links do YouTube" value={youtubeText} onChange={(event) => setYoutubeText(event.target.value)} placeholder={"https://www.youtube.com/watch?v=…\nhttps://youtu.be/…\nhttps://www.youtube.com/playlist?list=…"} /></label><p className="muted">Requer o yt-dlp instalado no sistema.</p><div className="sheet-actions"><Button type="submit" disabled={busy || !youtubeText.trim()}>Adicionar</Button><Button type="button" variant="ghost" onClick={() => setYoutubeOpen(false)}>Cancelar</Button></div></form> : null}</SheetContent></Sheet>
+    <Sheet open={!!editor} onOpenChange={(open) => { if (!open) setEditor(null) }}><SheetContent className="local-sheet"><SheetHeader><SheetTitle>{playlists.some((item) => item.id === editor?.id) ? "Editar playlist" : "Nova playlist"}</SheetTitle><SheetDescription>Escolha músicas da sua biblioteca. Nenhum arquivo será copiado.</SheetDescription></SheetHeader>{editor ? <form className="playlist-form" onSubmit={(event) => { event.preventDefault(); savePlaylist() }}><label>Nome<Input autoFocus required maxLength={120} value={editor.name} onChange={(event) => setEditor({ ...editor, name: event.target.value })} placeholder="Minha playlist" /></label><Input aria-label="Filtrar músicas da playlist" placeholder="Filtrar músicas…" value={editorSearch} onChange={(event) => setEditorSearch(event.target.value)} /><span className="muted">{editor.trackIds.length} selecionada(s)</span><div className="playlist-choices">{filterTracks(library.tracks, editorSearch).map((track) => <label key={track.id}><input type="checkbox" checked={editor.trackIds.includes(track.id)} onChange={(event) => setEditor({ ...editor, trackIds: event.target.checked ? [...editor.trackIds, track.id] : editor.trackIds.filter((id) => id !== track.id) })} /><span>{track.title}</span></label>)}{!library.tracks.length ? <p className="muted">Adicione músicas à biblioteca para preencher sua playlist.</p> : null}</div><div className="sheet-actions"><Button type="submit" disabled={!editor.name.trim()}>Salvar playlist</Button><Button type="button" variant="ghost" onClick={() => setEditor(null)}>Cancelar</Button></div>{playlists.some((item) => item.id === editor.id) ? <Button type="button" variant="destructive" onClick={() => { setLibrary((value) => ({ ...value, playlists: value.playlists.filter((item) => item.id !== editor.id) })); setEditor(null); setPlaylistId(""); notify("Playlist removida. Os arquivos de música foram mantidos.") }}><Trash2 />Excluir playlist</Button> : null}</form> : null}</SheetContent></Sheet>
+  </div>
+}

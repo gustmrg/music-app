@@ -1,0 +1,163 @@
+name: Desktop release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release (patch, minor, major, or an exact version such as 1.2.3). Releases run from main.
+        required: true
+        type: string
+        default: patch
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+
+jobs:
+  # Resolves the next version on top of main. The quality gates and packaging
+  # both start from it and run in parallel. Nothing is committed or tagged until
+  # both succeed, so a failed run leaves the repository untouched.
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      previous: ${{ steps.bump.outputs.previous }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.19.0
+      - id: bump
+        name: Resolve release version
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "$GITHUB_REF" != refs/heads/main ]]; then
+            echo "::error::Releases run from main, not $GITHUB_REF_NAME."
+            exit 1
+          fi
+          npm version "$REQUESTED_VERSION" --no-git-tag-version --allow-same-version
+          VERSION="$(node -p "require('./package.json').version")"
+          if [[ "$VERSION" == *-* ]]; then
+            echo "::error::$VERSION is a prerelease. Only plain versions such as 1.2.3 are released."
+            exit 1
+          fi
+          TAGS="$(git ls-remote --tags origin)"
+          if grep -q "refs/tags/v$VERSION$" <<<"$TAGS"; then
+            echo "::error::Tag v$VERSION already exists."
+            exit 1
+          fi
+          # The release notes start from the newest tag already published.
+          PREVIOUS="$(grep -oE 'refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' <<<"$TAGS" | sed 's#refs/tags/##' | sort -V | tail -n 1 || true)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "previous=$PREVIOUS" >> "$GITHUB_OUTPUT"
+          echo "Releasing v$VERSION from $GITHUB_REF_NAME at $GITHUB_SHA, with notes since ${PREVIOUS:-the first commit}."
+
+  # Runs every quality gate against the bumped tree.
+  verify:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.19.0
+          cache: npm
+      - run: npm ci
+      - run: npm version "${{ needs.version.outputs.version }}" --no-git-tag-version --allow-same-version
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  package:
+    needs: version
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: macos-15
+            name: macos
+            builder-args: --mac dmg --arm64
+          - os: ubuntu-latest
+            name: linux
+            builder-args: --linux AppImage deb --x64
+          - os: windows-latest
+            name: windows
+            builder-args: --win nsis --x64
+    runs-on: ${{ matrix.os }}
+    # Windows runners default to PowerShell; the packaging commands are bash.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.19.0
+          cache: npm
+      - run: npm ci
+      - run: npm version "${{ needs.version.outputs.version }}" --no-git-tag-version --allow-same-version
+      - name: Build and package
+        env:
+          # The app is not signed or notarized.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run build && npx electron-builder ${{ matrix.builder-args }} --publish never
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-${{ matrix.name }}
+          path: |
+            release/*.dmg
+            release/*.AppImage
+            release/*.deb
+            release/*.exe
+          if-no-files-found: error
+          retention-days: 30
+
+  # Commits the version bump, tags it, and uploads the release as a draft, and
+  # publishes it only after every gate and every packaging job has passed.
+  release:
+    needs: [version, verify, package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.19.0
+      - name: Commit and tag the version
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet -- package.json package-lock.json; then
+            git add package.json package-lock.json
+            git commit -m "chore(release): prepare v$VERSION"
+          fi
+          git tag "v$VERSION"
+          # Atomic, so main and the tag move together or not at all. A push to
+          # main during the run makes this fail rather than overwrite it.
+          git push --atomic origin "HEAD:refs/heads/main" "refs/tags/v$VERSION"
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Generate checksums
+        run: node scripts/checksums.mjs artifacts
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ needs.version.outputs.version }}
+          PREVIOUS: ${{ needs.version.outputs.previous }}
+        run: |
+          FLAGS=(--draft --generate-notes)
+          if [[ -n "$PREVIOUS" ]]; then FLAGS+=(--notes-start-tag "$PREVIOUS"); fi
+          gh release create "$TAG" --verify-tag --title "Local Music $TAG" "${FLAGS[@]}"
+          gh release upload "$TAG" --clobber artifacts/*
+          # Published last, so nobody sees a release with missing files.
+          gh release edit "$TAG" --draft=false --latest
