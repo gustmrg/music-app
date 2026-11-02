@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "start": "npm run dev",
     "dist": "npm run build && electron-builder",
-    "typecheck": "tsc -b --pretty false"
+    "typecheck": "tsc -b --pretty false",
+    "test": "node --test \"electron/*.test.cjs\""
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
@@ -21,7 +22,6 @@
     "lucide-react": "^0.468.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "shadcn": "^4.19.0",
     "tailwind-merge": "^3.3.1"
   },
   "devDependencies": {
@@ -41,8 +41,13 @@
   },
   "build": {
     "appId": "com.cloudmusic.desktop",
-    "productName": "Cloud Music",
-    "files": ["dist/**/*", "electron/**/*", "package.json"],
+    "productName": "Local Music",
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "!electron/*.test.cjs",
+      "package.json"
+    ],
     "directories": {
       "output": "release"
     },
@@ -54,7 +59,10 @@
       "target": "nsis"
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "category": "AudioVideo"
     }
   }
