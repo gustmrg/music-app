@@ -1,17 +1,27 @@
 # Local Music
 
-Player desktop de músicas e playlists locais, feito com Electron, React, TypeScript e Vite. Sem conta, recomendações, catálogo de demonstração ou áudio sintetizado. Também reproduz vídeos do YouTube via streaming, sem download.
+Um player de música para o desktop que toca o que já é seu: os arquivos do seu computador e os links do YouTube que você colar. Sem conta, sem assinatura, sem recomendações e sem catálogo de terceiros. Sua biblioteca começa vazia e só tem o que você escolher adicionar.
 
-Os arquivos originais não são copiados, movidos, editados nem excluídos. Biblioteca, favoritos, recentes, playlists e volume ficam em `local-library.json`, no diretório de dados do usuário.
+> [!NOTE]
+> Projeto pessoal em desenvolvimento inicial (versões 0.x). Funciona, mas ainda muda bastante.
+
+## O que ele faz
+
+- **Biblioteca local:** adicione arquivos ou pastas inteiras (MP3, FLAC, WAV, OGG, Opus, M4A, AAC e WebM) e navegue por Biblioteca, Pastas, Favoritos e Recentes.
+- **Playlists suas:** crie, reordene e exporte em M3U8; importe M3U/M3U8 que você já tem.
+- **Fila e player completos:** busca na faixa, volume, repetição, aleatório e uma fila temporária que você pode salvar como playlist.
+- **YouTube sem download:** cole links de vídeos ou playlists e ouça por streaming, resolvido no momento em que a faixa toca.
+- **Seus arquivos intactos:** nada é copiado, movido, editado nem excluído.
+- **Privado por padrão:** tudo fica em um arquivo local, sem serviço remoto nem telemetria.
 
 ## Instalação
 
 Baixe o instalador da página de [Releases](https://github.com/gustmrg/music-app/releases) (macOS arm64, Windows x64 e Linux x64).
 
-> [!NOTE]
+> [!IMPORTANT]
 > Os aplicativos **não são assinados**. O macOS e o Windows mostram um aviso na primeira abertura; veja como liberar em [Instalação](docs/installation.md#aplicativo-sem-assinatura).
 
-## Desenvolvimento
+## Rodando a partir do código
 
 ```bash
 npm install
@@ -20,6 +30,10 @@ npm test
 ```
 
 Requer Node.js 22 ou superior. As mudanças entram por pull request.
+
+## Direção
+
+O foco é ser um player local simples e rápido. Ficaram de fora da primeira versão, e são os candidatos naturais para as próximas: leitura de tags de artista e álbum, capas embutidas, monitoramento automático de pastas, equalizador e letras. O escopo completo está no [SPEC](SPEC.md).
 
 ## Documentação
 
