@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { Heart, ListMusic, Music2, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, Volume2 } from "lucide-react"
+import { Download, Heart, ListMusic, Music2, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, Volume2 } from "lucide-react"
 import { formatTime, type Track } from "@/library"
 import { Button } from "@/components/ui/button"
 
@@ -8,21 +8,26 @@ const modes: PlayMode[] = ["order", "repeat", "one", "shuffle"]
 const labels = { order: "Em ordem", repeat: "Repetir fila", one: "Repetir música", shuffle: "Aleatório" }
 
 type Props = {
-  track: Track | undefined; request: number; liked: boolean; volume: number; mode: PlayMode
+  track: Track | undefined; request: number; liked: boolean; volume: number; mode: PlayMode; torrentStatus?: { progress: number; peers: number }
   onVolume: (value: number) => void; onMode: (mode: PlayMode) => void; onLike: () => void
   onNext: (ended?: boolean) => void; onPrevious: () => void; onQueue: () => void
-  onStarted: (id: string) => void; onError: (message: string) => void
+  onStarted: (id: string) => void; onError: (message: string) => void; onSave?: () => void
 }
 
-export function Player({ track, request, liked, volume, mode, onVolume, onMode, onLike, onNext, onPrevious, onQueue, onStarted, onError }: Props) {
+export function Player({ track, request, liked, volume, mode, torrentStatus, onVolume, onMode, onLike, onNext, onPrevious, onQueue, onStarted, onError, onSave }: Props) {
   const audio = useRef<HTMLAudioElement>(null)
   const [playing, setPlaying] = useState(false)
   const [progress, setProgress] = useState(0)
   const [duration, setDuration] = useState(0)
   const [resolving, setResolving] = useState(false)
+  const [buffering, setBuffering] = useState(false)
   const isYouTube = track?.source === "youtube"
+  const isTorrent = track?.source === "torrent"
   const source = track && !isYouTube ? track.url ?? `local-music://track/${track.id}` : undefined
   const trackId = track?.id
+  const subtitle = isTorrent
+    ? buffering ? "Buscando na rede…" : `Torrent · ${Math.round((torrentStatus?.progress ?? 0) * 100)}% · ${torrentStatus?.peers ?? 0} par(es)`
+    : track?.format
   const play = () => {
     const element = audio.current
     if (!element) return
@@ -62,19 +67,28 @@ export function Player({ track, request, liked, volume, mode, onVolume, onMode, 
 
   useEffect(() => { if (audio.current) audio.current.volume = volume }, [volume])
 
+  // Torrent streams stall while missing pieces download; waiting/playing
+  // bracket those gaps so the UI can say what is happening.
+  useEffect(() => { if (!isTorrent) setBuffering(false) }, [isTorrent, trackId])
+
   return <footer className="player-bar" aria-label="Player de música">
     <audio ref={audio} preload="metadata"
       onPlay={() => { setPlaying(true); if (track) onStarted(track.id) }}
       onPause={() => setPlaying(false)}
-      onTimeUpdate={(event) => setProgress(event.currentTarget.currentTime)}
+      onWaiting={() => { if (isTorrent) setBuffering(true) }}
+      onStalled={() => { if (isTorrent) setBuffering(true) }}
+      onPlaying={() => setBuffering(false)}
+      onCanPlay={() => setBuffering(false)}
+      onTimeUpdate={(event) => { setBuffering(false); setProgress(event.currentTarget.currentTime) }}
       onDurationChange={(event) => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
-      onError={() => { setPlaying(false); if (track) onError(isYouTube ? `Não foi possível reproduzir o stream de “${track.title}”. O link pode ter expirado; toque novamente para atualizar.` : `Não foi possível abrir “${track.title}”. O arquivo pode ter sido movido ou usar um formato não compatível.`) }}
+      onError={() => { setPlaying(false); setBuffering(false); if (track) onError(isYouTube ? `Não foi possível reproduzir o stream de “${track.title}”. O link pode ter expirado; toque novamente para atualizar.` : isTorrent ? `Não foi possível reproduzir “${track.title}” pelo torrent. Ele pode estar sem seeds; pare os torrents e tente outro resultado.` : `Não foi possível abrir “${track.title}”. O arquivo pode ter sido movido ou usar um formato não compatível.`) }}
       onEnded={() => { if (mode === "one") { if (audio.current) audio.current.currentTime = 0; play() } else onNext(true) }}
     />
     <div className="player-track">
       <div className="cover-placeholder"><Music2 size={23} /></div>
-      <div className="truncate"><strong>{track?.title ?? "Nenhuma música selecionada"}</strong><span>{track ? resolving ? "Buscando áudio…" : track.format : "Abra arquivos ou adicione uma pasta"}</span></div>
+      <div className="truncate"><strong>{track?.title ?? "Nenhuma música selecionada"}</strong><span>{track ? resolving ? "Buscando áudio…" : subtitle : "Abra arquivos ou adicione uma pasta"}</span></div>
       <Button variant="ghost" size="icon" disabled={!track} aria-label={liked ? "Remover dos favoritos" : "Favoritar música"} aria-pressed={liked} className={liked ? "accent" : ""} onClick={onLike}><Heart fill={liked ? "currentColor" : "none"} /></Button>
+      {isTorrent && onSave ? <Button variant="ghost" size="icon" aria-label="Salvar na biblioteca" title="Salvar na biblioteca" onClick={onSave}><Download /></Button> : null}
     </div>
     <div className="player-center">
       <div className="playback-controls">

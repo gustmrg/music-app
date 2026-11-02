@@ -3,6 +3,7 @@ const path = require("node:path")
 const { createHash, randomUUID } = require("node:crypto")
 const { fileURLToPath } = require("node:url")
 const { describeYouTube, isYouTubeTrackPath } = require("./youtube.cjs")
+const { cleanDiscoverSettings } = require("./discover.cjs")
 
 const AUDIO_EXTENSIONS = ["mp3", "wav", "flac", "ogg", "opus", "m4a", "aac", "webm"]
 const isAudio = (file) => AUDIO_EXTENSIONS.includes(path.extname(file).slice(1).toLowerCase())
@@ -29,6 +30,7 @@ function cleanPreferences(value, tracks) {
     liked: references(value?.liked),
     recent: references(value?.recent).slice(0, 100),
     volume: Number.isFinite(value?.volume) ? Math.max(0, Math.min(1, value.volume)) : 0.7,
+    discover: cleanDiscoverSettings(value?.discover),
     playlists: (Array.isArray(value?.playlists) ? value.playlists : []).filter((item) => {
       if (!item || typeof item.id !== "string" || playlistIds.has(item.id) || typeof item.name !== "string" || !item.name.trim()) return false
       playlistIds.add(item.id)
@@ -37,9 +39,15 @@ function cleanPreferences(value, tracks) {
   }
 }
 
+// The save folder is chosen through a main-process dialog only, so it lives
+// outside the preferences the renderer can overwrite.
+const cleanSaveFolder = (value) => typeof value === "string" && path.isAbsolute(value) && isLocal(value) ? value : ""
+
 class LocalLibrary {
-  constructor(storeFile) {
+  constructor(storeFile, { defaultSaveFolder = "" } = {}) {
     this.storeFile = storeFile
+    this.defaultSaveFolder = defaultSaveFolder
+    this.saveFolder = ""
     this.tracks = new Map()
     this.preferences = cleanPreferences({}, [])
     this.writes = Promise.resolve()
@@ -60,6 +68,7 @@ class LocalLibrary {
       }
     }
     this.preferences = cleanPreferences(saved, [...this.tracks.values()])
+    this.saveFolder = cleanSaveFolder(saved.saveFolder)
     return this.snapshot()
   }
 
@@ -73,10 +82,21 @@ class LocalLibrary {
     }
   }
 
-  snapshot() { return { tracks: [...this.tracks.values()], ...this.preferences } }
+  snapshot() { return { tracks: [...this.tracks.values()], ...this.preferences, saveFolder: this.saveFolderPath() } }
+
+  saveFolderPath() { return this.saveFolder || this.defaultSaveFolder }
+
+  async setSaveFolder(folder) {
+    const clean = cleanSaveFolder(folder)
+    if (!clean) throw new Error("Escolha uma pasta local para salvar as músicas.")
+    this.saveFolder = clean
+    await this.persist()
+    return clean
+  }
 
   async persist() {
-    const text = JSON.stringify({ version: 1, ...this.snapshot() })
+    // Persist only an explicit choice so the default follows the OS music folder.
+    const text = JSON.stringify({ version: 1, ...this.snapshot(), saveFolder: this.saveFolder })
     const write = async () => {
       await fs.mkdir(path.dirname(this.storeFile), { recursive: true })
       const temporary = `${this.storeFile}.tmp`

@@ -4,12 +4,15 @@ const { pathToFileURL } = require("node:url")
 const { LocalLibrary, AUDIO_EXTENSIONS } = require("./library.cjs")
 const { audioResponse } = require("./audio.cjs")
 const { parseYouTubeLinks, fetchVideos, resolveStream, MAX_PLAYLIST_ENTRIES } = require("./youtube.cjs")
+const { searchDiscover, testDiscover, cleanDiscoverSettings, isIndexerUrl } = require("./discover.cjs")
+const { TorrentEngine } = require("./torrent.cjs")
 
 const isDev = !app.isPackaged
 const entryURL = isDev ? "http://127.0.0.1:5173/" : pathToFileURL(path.join(__dirname, "../dist/index.html")).href
 let library
 let ready
 let operations = Promise.resolve()
+let engine
 protocol.registerSchemesAsPrivileged([
   { scheme: "local-music", privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } },
 ])
@@ -18,13 +21,35 @@ function trusted(event) {
   return event.senderFrame === event.sender.mainFrame && event.senderFrame.url === entryURL
 }
 
+// Library mutations run one at a time, whether they come from IPC or from
+// background work such as a finished torrent save.
+function enqueue(action) {
+  const operation = operations.catch(() => {}).then(action)
+  operations = operation
+  return operation
+}
+
 function handle(channel, action) {
   ipcMain.handle(channel, async (event, ...args) => {
     if (!trusted(event)) throw new Error("Origem não autorizada.")
     await ready
-    const operation = operations.catch(() => {}).then(() => action(BrowserWindow.fromWebContents(event.sender), ...args))
-    operations = operation
-    return operation
+    return enqueue(() => action(BrowserWindow.fromWebContents(event.sender), ...args))
+  })
+}
+
+function broadcast(channel, payload) {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send(channel, payload)
+  }
+}
+
+// Discover and torrent calls stay outside the serialized library queue:
+// metadata waits can take up to a minute and must not block library imports.
+function handleConcurrent(channel, action) {
+  ipcMain.handle(channel, async (event, ...args) => {
+    if (!trusted(event)) throw new Error("Origem não autorizada.")
+    await ready
+    return action(BrowserWindow.fromWebContents(event.sender), ...args)
   })
 }
 
@@ -73,6 +98,10 @@ handle("library:export-playlist", async (win, ids) => {
   return true
 })
 handle("library:preferences", (_win, preferences) => library.savePreferences(preferences))
+handle("library:save-folder", async (win) => {
+  const selection = await dialog.showOpenDialog(win, { title: "Pasta para músicas salvas", defaultPath: library.saveFolderPath(), properties: ["openDirectory", "createDirectory"] })
+  return selection.canceled ? null : library.setSaveFolder(selection.filePaths[0])
+})
 
 // Googlevideo stream URLs expire after a few hours; cache only within that window.
 const streamCache = new Map()
@@ -103,15 +132,50 @@ handle("youtube:resolve", async (_win, id) => {
   return { url }
 })
 
+// Discover: search the user-configured Prowlarr or Torznab endpoint.
+handleConcurrent("discover:search", (_win, query) => searchDiscover(library.preferences.discover, query))
+handleConcurrent("discover:test", (_win, settings) => testDiscover(cleanDiscoverSettings(settings ?? library.preferences.discover)))
+
+// Torrent streaming: expand shows the files inside a torrent; prepare
+// registers the virtual track that local-music://track/<id> serves.
+handleConcurrent("torrent:expand", (_win, source) => engine.expand(source))
+handleConcurrent("torrent:prepare", async (_win, source, fileIndex) => {
+  const prepared = await engine.prepare(source, fileIndex)
+  return { ...prepared, url: `local-music://track/${prepared.id}` }
+})
+handleConcurrent("torrent:release", (_win, id) => { engine.release(id) })
+handleConcurrent("torrent:stop", (_win, includeSaves) => engine.stopAll({ includeSaves: includeSaves === true }))
+// Save: keep the streamed files and add them to the library once complete.
+handleConcurrent("torrent:save", (_win, source, fileIndexes) => engine.save(source, fileIndexes, library.saveFolderPath()))
+handleConcurrent("torrent:save-track", (_win, id) => engine.saveTrack(id, library.saveFolderPath()))
+
+function defaultSaveFolder() {
+  let music
+  try { music = app.getPath("music") } catch { music = path.join(app.getPath("home"), "Music") }
+  return path.join(music, "Local Music")
+}
+
 app.whenReady().then(() => {
-  library = new LocalLibrary(path.join(app.getPath("userData"), "local-library.json"))
+  library = new LocalLibrary(path.join(app.getPath("userData"), "local-library.json"), { defaultSaveFolder: defaultSaveFolder() })
   ready = library.load()
   // Keep a corrupt library intact and report the failure through the UI.
   ready.catch((error) => console.error("Unable to load local library:", error.message))
+  // Download links are fetched only from the configured indexer's origin.
+  engine = new TorrentEngine({ cachePath: path.join(app.getPath("userData"), "torrent-cache"), allowUrl: (url) => isIndexerUrl(library.preferences.discover, url) })
+  engine.onProgress = (snapshot) => broadcast("torrent:progress", snapshot)
+  engine.onSaved = ({ name, paths, failed, cancelled }) => {
+    const summary = { name, saved: paths.length, failed, cancelled }
+    enqueue(async () => {
+      await ready
+      broadcast("torrent:saved", { ...summary, result: paths.length ? await library.addFiles(paths) : null })
+    }).catch((error) => broadcast("torrent:saved", { ...summary, result: null, error: error instanceof Error ? error.message : String(error) }))
+  }
+  // Stream-only posture: nothing from a previous session is ever seeded again.
+  engine.resetCache().catch(() => {})
   protocol.handle("local-music", async (request) => {
     try {
       await ready
-      return audioResponse(request, library)
+      return audioResponse(request, library, engine)
     } catch { return new Response(null, { status: 404 }) }
   })
   createWindow()
@@ -122,6 +186,10 @@ let quitting = false
 app.on("before-quit", (event) => {
   if (quitting) return
   event.preventDefault()
-  operations.catch(() => {}).then(() => library?.writes).catch(() => {}).finally(() => { quitting = true; app.quit() })
+  // Destroying the engine cancels pending saves, which may still queue
+  // library imports for files already copied; drain the queue once more.
+  operations.catch(() => {}).then(() => engine?.destroy()).catch(() => {})
+    .then(() => operations).catch(() => {}).then(() => library?.writes).catch(() => {})
+    .finally(() => { quitting = true; app.quit() })
 })
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit() })
