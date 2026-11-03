@@ -1,44 +1,61 @@
-const { app, BrowserWindow, ipcMain, dialog, protocol } = require("electron")
-const path = require("node:path")
-const { pathToFileURL } = require("node:url")
-const { LocalLibrary, AUDIO_EXTENSIONS } = require("./library.cjs")
-const { audioResponse } = require("./audio.cjs")
-const { parseYouTubeLinks, fetchVideos, resolveStream, MAX_PLAYLIST_ENTRIES } = require("./youtube.cjs")
-const { searchDiscover, testDiscover, cleanDiscoverSettings, isIndexerUrl } = require("./discover.cjs")
-const { TorrentEngine } = require("./torrent.cjs")
-const { coverResponse } = require("./metadata.cjs")
+import { app, BrowserWindow, ipcMain, dialog, protocol } from "electron"
+import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
+import path from "node:path"
+import { pathToFileURL } from "node:url"
+import type { EventChannels, InvokeArgs, InvokeChannel, InvokeResult, SendChannel } from "../shared/ipc.ts"
+import type { Library, YouTubeResolved } from "../shared/types.ts"
+import { LocalLibrary, AUDIO_EXTENSIONS } from "./library.ts"
+import { audioResponse } from "./audio.ts"
+import { parseYouTubeLinks, fetchVideos, resolveStream } from "./youtube.ts"
+import type { YouTubeVideo } from "./youtube.ts"
+import { searchDiscover, testDiscover, cleanDiscoverSettings, isIndexerUrl } from "./discover.ts"
+import { TorrentEngine } from "./torrent.ts"
+import { coverResponse } from "./metadata.ts"
 
+// This file is bundled to dist-electron/main.cjs, next to preload.cjs.
 const isDev = !app.isPackaged
-const entryURL = isDev ? "http://127.0.0.1:5173/" : pathToFileURL(path.join(__dirname, "../dist/index.html")).href
-let library
-let ready
-let operations = Promise.resolve()
-let engine
+const entryURL = isDev ? "http://127.0.0.1:5173/" : pathToFileURL(path.join(import.meta.dirname, "../dist/index.html")).href
+// Both are created once the app is ready, before any handler can run.
+let library: LocalLibrary
+let engine: TorrentEngine
+let ready: Promise<Library>
+let operations: Promise<unknown> = Promise.resolve()
 protocol.registerSchemesAsPrivileged([
   { scheme: "local-music", privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } },
 ])
 
-function trusted(event) {
+function trusted(event: IpcMainEvent | IpcMainInvokeEvent) {
   return event.senderFrame === event.sender.mainFrame && event.senderFrame.url === entryURL
 }
 
 // Library mutations run one at a time, whether they come from IPC or from
 // background work such as a finished torrent save.
-function enqueue(action) {
+function enqueue<T>(action: () => T | Promise<T>): Promise<T> {
   const operation = operations.catch(() => {}).then(action)
   operations = operation
   return operation
 }
 
-function handle(channel, action) {
+// Handlers are typed by the shared IPC contract, so a handler whose result
+// differs from what the renderer expects fails the typecheck.
+type Handler<C extends InvokeChannel> = (win: BrowserWindow, ...args: InvokeArgs<C>) => InvokeResult<C> | Promise<InvokeResult<C>>
+
+function register<C extends InvokeChannel>(channel: C, action: Handler<C>, queued: boolean) {
   ipcMain.handle(channel, async (event, ...args) => {
     if (!trusted(event)) throw new Error("Origem não autorizada.")
     await ready
-    return enqueue(() => action(BrowserWindow.fromWebContents(event.sender), ...args))
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) throw new Error("Janela não encontrada.")
+    const run = () => action(win, ...(args as InvokeArgs<C>))
+    return queued ? enqueue(run) : run()
   })
 }
 
-function broadcast(channel, payload) {
+function handle<C extends InvokeChannel>(channel: C, action: Handler<C>) {
+  register(channel, action, true)
+}
+
+function broadcast<E extends keyof EventChannels>(channel: E, payload: EventChannels[E]) {
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send(channel, payload)
   }
@@ -46,12 +63,8 @@ function broadcast(channel, payload) {
 
 // Discover and torrent calls stay outside the serialized library queue:
 // metadata waits can take up to a minute and must not block library imports.
-function handleConcurrent(channel, action) {
-  ipcMain.handle(channel, async (event, ...args) => {
-    if (!trusted(event)) throw new Error("Origem não autorizada.")
-    await ready
-    return action(BrowserWindow.fromWebContents(event.sender), ...args)
-  })
+function handleConcurrent<C extends InvokeChannel>(channel: C, action: Handler<C>) {
+  register(channel, action, false)
 }
 
 function createWindow() {
@@ -59,8 +72,8 @@ function createWindow() {
     width: 1280, height: 820, minWidth: 820, minHeight: 600,
     show: false, frame: false, backgroundColor: "#131316", title: "Local Music",
     // In packaged builds the icon is embedded by electron-builder; this covers dev and unpacked Linux runs.
-    icon: path.join(__dirname, "../build/icon.png"),
-    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true },
+    icon: path.join(import.meta.dirname, "../build/icon.png"),
+    webPreferences: { preload: path.join(import.meta.dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true },
   })
   win.once("ready-to-show", () => win.show())
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }))
@@ -68,11 +81,12 @@ function createWindow() {
   win.loadURL(entryURL)
 }
 
-for (const [channel, action] of [
+const windowActions: [SendChannel, (win: BrowserWindow) => void][] = [
   ["window:minimize", (win) => win.minimize()],
   ["window:toggle-maximize", (win) => win.isMaximized() ? win.unmaximize() : win.maximize()],
   ["window:close", (win) => win.close()],
-]) {
+]
+for (const [channel, action] of windowActions) {
   ipcMain.on(channel, (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (trusted(event) && win) action(win)
@@ -83,7 +97,7 @@ for (const [channel, action] of [
 // so the library dialogs share the last folder the user picked from.
 let lastDialogFolder = ""
 const startIn = (name = "") => lastDialogFolder ? path.join(lastDialogFolder, name) : name || undefined
-const rememberFolder = (folder) => { if (folder) lastDialogFolder = folder }
+const rememberFolder = (folder: string) => { if (folder) lastDialogFolder = folder }
 
 handle("library:load", () => library.snapshot())
 handle("library:files", async (win) => {
@@ -120,13 +134,13 @@ handle("library:save-folder", async (win) => {
 
 // Googlevideo stream URLs expire after a few hours; cache only within that window.
 // Each entry keeps the URL and whether the video was live when resolved.
-const streamCache = new Map()
+const streamCache = new Map<string, YouTubeResolved & { expires: number }>()
 const STREAM_CACHE_TTL = 4 * 60 * 60 * 1000
 
 handle("youtube:add", async (_win, text, name) => {
-  const { targets, invalid } = parseYouTubeLinks(text)
+  const { targets } = parseYouTubeLinks(text)
   if (!targets.length) throw new Error("Nenhum link do YouTube válido foi encontrado no texto enviado.")
-  const videos = []
+  const videos: YouTubeVideo[] = []
   let playlistTitle = ""
   for (const target of targets) {
     const result = await fetchVideos(target)
@@ -167,7 +181,7 @@ handleConcurrent("torrent:save", (_win, source, fileIndexes) => engine.save(sour
 handleConcurrent("torrent:save-track", (_win, id) => engine.saveTrack(id, library.saveFolderPath()))
 
 function defaultSaveFolder() {
-  let music
+  let music: string
   try { music = app.getPath("music") } catch { music = path.join(app.getPath("home"), "Music") }
   return path.join(music, "Local Music")
 }
@@ -177,10 +191,10 @@ app.whenReady().then(() => {
   library = new LocalLibrary(path.join(app.getPath("userData"), "local-library.json"), { defaultSaveFolder: defaultSaveFolder(), coversDir })
   ready = library.load()
   // Keep a corrupt library intact and report the failure through the UI.
-  ready.catch((error) => console.error("Unable to load local library:", error.message))
+  ready.catch((error: Error) => console.error("Unable to load local library:", error.message))
   // Tracks imported before tag support get their tags in the background.
   ready.then(() => library.scanPending((tracks) => broadcast("library:tracks", tracks)))
-    .catch((error) => console.error("Unable to read track tags:", error.message))
+    .catch((error: Error) => console.error("Unable to read track tags:", error.message))
   // Download links are fetched only from the configured indexer's origin.
   engine = new TorrentEngine({ cachePath: path.join(app.getPath("userData"), "torrent-cache"), allowUrl: (url) => isIndexerUrl(library.preferences.discover, url) })
   engine.onProgress = (snapshot) => broadcast("torrent:progress", snapshot)
@@ -189,7 +203,7 @@ app.whenReady().then(() => {
     enqueue(async () => {
       await ready
       broadcast("torrent:saved", { ...summary, result: paths.length ? await library.addFiles(paths) : null })
-    }).catch((error) => broadcast("torrent:saved", { ...summary, result: null, error: error instanceof Error ? error.message : String(error) }))
+    }).catch((error: unknown) => broadcast("torrent:saved", { ...summary, result: null, error: error instanceof Error ? error.message : String(error) }))
   }
   // Stream-only posture: nothing from a previous session is ever seeded again.
   engine.resetCache().catch(() => {})

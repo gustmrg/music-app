@@ -1,4 +1,10 @@
-const { XMLParser } = require("fast-xml-parser")
+import { XMLParser } from "fast-xml-parser"
+import type { DiscoverConnection, DiscoverProvider, DiscoverResult, DiscoverSettings, DiscoverTest } from "../shared/types.ts"
+
+// Indexer XML and JSON are loosely shaped; each field is checked where read.
+type Loose = Record<string, any>
+type ParsedName = Pick<DiscoverResult, "artist" | "album" | "year" | "format" | "display">
+type ProwlarrResult = DiscoverResult & { infoHash: string }
 
 // Music search through the user's own indexer manager. Two providers:
 // - "prowlarr": Prowlarr's native API (/api/v1/search), which searches every
@@ -6,8 +12,8 @@ const { XMLParser } = require("fast-xml-parser")
 // - "torznab": any Torznab endpoint, e.g. Jackett's "all" aggregate.
 // The endpoint and API key are user-supplied; the app ships with no built-in
 // source, mirroring the addon-agnostic stance of the YouTube integration.
-const DEFAULT_CATEGORIES = "3000"
-const PROVIDERS = ["prowlarr", "torznab"]
+export const DEFAULT_CATEGORIES = "3000"
+const PROVIDERS: DiscoverProvider[] = ["prowlarr", "torznab"]
 const MAX_RESULTS = 100
 const REQUEST_TIMEOUT_MS = 15_000
 // Prowlarr answers only after every indexer replied or timed out.
@@ -22,7 +28,7 @@ const xmlParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: 
 // saved before providers existed were Torznab endpoints.
 // The top-level url/apiKey/categories are the active provider's; `profiles`
 // keeps each provider's own fields so switching providers never mixes them.
-function cleanConnection(value) {
+function cleanConnection(value: Loose | null | undefined): DiscoverConnection {
   let url = ""
   if (typeof value?.url === "string") {
     const candidate = value.url.trim()
@@ -36,10 +42,11 @@ function cleanConnection(value) {
   return { url, apiKey, categories }
 }
 
-function cleanDiscoverSettings(value) {
-  const provider = PROVIDERS.includes(value?.provider) ? value.provider : "torznab"
+export function cleanDiscoverSettings(input: unknown): DiscoverSettings {
+  const value = input && typeof input === "object" ? input as Loose : undefined
+  const provider: DiscoverProvider = PROVIDERS.includes(value?.provider) ? value!.provider : "torznab"
   const active = cleanConnection(value)
-  const profiles = {}
+  const profiles: DiscoverSettings["profiles"] = {}
   for (const name of PROVIDERS) {
     const saved = value?.profiles?.[name]
     if (name === provider) profiles[name] = active
@@ -48,23 +55,23 @@ function cleanDiscoverSettings(value) {
   return { provider, ...active, profiles, noticeAccepted: value?.noticeAccepted === true }
 }
 
-function isDiscoverConfigured(settings) {
+export function isDiscoverConfigured(settings: DiscoverSettings | null | undefined): boolean {
   return Boolean(settings?.url && settings?.apiKey)
 }
 
 // Download links handed out by the indexer manager (Prowlarr /download proxy,
 // Jackett /dl proxy) live on the configured origin; only those are fetched.
-function isIndexerUrl(settings, value) {
-  try { return Boolean(settings?.url) && new URL(value).origin === new URL(settings.url).origin } catch { return false }
+export function isIndexerUrl(settings: Pick<DiscoverConnection, "url"> | null | undefined, value: string): boolean {
+  try { return Boolean(settings?.url) && new URL(value).origin === new URL(settings!.url).origin } catch { return false }
 }
 
-function cleanTitle(value) {
+function cleanTitle(value: unknown) {
   return String(value ?? "").replace(/[\t\r\n]+/g, " ").trim().slice(0, 200)
 }
 
 // Parses release names such as "Artist - Album (2019) [FLAC] {Group}" into
 // display fields. Purely heuristic: the raw title is always kept alongside.
-function parseTorrentName(raw) {
+export function parseTorrentName(raw: unknown): ParsedName {
   const original = cleanTitle(raw)
   const year = original.match(/\b((?:19|20)\d{2})\b/)?.[1] ?? ""
   let format = ""
@@ -81,20 +88,20 @@ function parseTorrentName(raw) {
   return { artist, album, year, format, display: display || original }
 }
 
-function asArray(value) {
+function asArray<T>(value: T | T[] | null | undefined | ""): T[] {
   if (value == null || value === "") return []
   return Array.isArray(value) ? value : [value]
 }
 
-function textOf(value) {
-  return typeof value === "object" && value !== null ? value["#text"] : value
+function textOf(value: unknown): unknown {
+  return typeof value === "object" && value !== null ? (value as Loose)["#text"] : value
 }
 
-function isMagnet(value) {
+function isMagnet(value: unknown): value is string {
   return typeof value === "string" && MAGNET_PREFIX.test(value)
 }
 
-function httpUrl(value) {
+function httpUrl(value: unknown): string {
   if (typeof value !== "string" || /\s/.test(value.trim())) return ""
   try {
     const url = new URL(value.trim())
@@ -102,9 +109,9 @@ function httpUrl(value) {
   } catch { return "" }
 }
 
-function attrMap(item) {
-  const map = {}
-  for (const attr of asArray(item.attr)) {
+function attrMap(item: Loose) {
+  const map: Record<string, string> = {}
+  for (const attr of asArray<Loose>(item.attr)) {
     if (attr && attr["@_name"]) map[attr["@_name"]] = attr["@_value"]
   }
   return map
@@ -113,14 +120,14 @@ function attrMap(item) {
 // Magnets first (no extra request, carry trackers); then the download link.
 // Per the Torznab spec <link>/<enclosure> are downloads and <comments> is
 // the details page.
-function pickSource(item, attrs) {
+function pickSource(item: Loose, attrs: Record<string, string>): string {
   for (const candidate of [attrs.magneturl, textOf(item.guid), textOf(item.link)]) {
     if (isMagnet(candidate)) return candidate
   }
   return httpUrl(item.enclosure?.["@_url"]) || httpUrl(textOf(item.link))
 }
 
-function toResult(item) {
+function toResult(item: Loose): DiscoverResult | null {
   const raw = cleanTitle(item.title)
   if (!raw) return null
   const attrs = attrMap(item)
@@ -138,15 +145,15 @@ function toResult(item) {
   }
 }
 
-function rank(results) {
-  return results.filter((item) => item && (item.seeders === -1 || item.seeders > 0)).sort((a, b) => b.seeders - a.seeders).slice(0, MAX_RESULTS)
+function rank<T extends DiscoverResult>(results: (T | null)[]): T[] {
+  return results.filter((item): item is T => item !== null && (item.seeders === -1 || item.seeders > 0)).sort((a, b) => b.seeders - a.seeders).slice(0, MAX_RESULTS)
 }
 
 // Flattens a Torznab RSS document into search results, best seeders first.
 // Torznab errors (<error code description/>) often arrive with HTTP 200, so
 // they are surfaced here with the indexer's own description.
-function parseTorznab(xml) {
-  let document
+export function parseTorznab(xml: string): { results: DiscoverResult[] } {
+  let document: Loose
   try { document = xmlParser.parse(xml) } catch { throw new Error("A resposta do indexador não é um XML válido.") }
   const failure = document?.error
   if (failure && typeof failure === "object") {
@@ -155,13 +162,13 @@ function parseTorznab(xml) {
   }
   const channel = document?.rss?.channel
   if (!channel) throw new Error("A resposta do indexador não contém resultados Torznab.")
-  return { results: rank(asArray(channel.item).map(toResult)) }
+  return { results: rank(asArray<Loose>(channel.item).map(toResult)) }
 }
 
 // Prowlarr releases: proxied magnet/download links (both on the Prowlarr
 // origin), usenet entries skipped, the same torrent from several indexers
 // collapsed onto its best-seeded copy.
-function fromProwlarr(release) {
+function fromProwlarr(release: Loose | null): ProwlarrResult | null {
   if (!release || (release.protocol !== "torrent" && release.protocol !== 2)) return null
   const raw = cleanTitle(release.title)
   if (!raw) return null
@@ -182,10 +189,10 @@ function fromProwlarr(release) {
   }
 }
 
-function parseProwlarr(releases) {
+export function parseProwlarr(releases: unknown): { results: DiscoverResult[] } {
   if (!Array.isArray(releases)) throw new Error("A resposta do Prowlarr não é uma lista de resultados.")
-  const seen = new Set()
-  const results = rank(releases.map(fromProwlarr)).filter((item) => {
+  const seen = new Set<string>()
+  const results = rank((releases as (Loose | null)[]).map(fromProwlarr)).filter((item) => {
     if (!item.infoHash) return true
     if (seen.has(item.infoHash)) return false
     seen.add(item.infoHash)
@@ -194,7 +201,7 @@ function parseProwlarr(releases) {
   return { results: results.map(({ infoHash: _infoHash, ...item }) => item) }
 }
 
-function torznabEndpoint(settings, parameters) {
+export function torznabEndpoint(settings: Pick<DiscoverConnection, "url">, parameters: Record<string, string>): string {
   const url = new URL(settings.url)
   url.search = ""
   for (const [key, value] of Object.entries(parameters)) url.searchParams.set(key, value)
@@ -203,7 +210,7 @@ function torznabEndpoint(settings, parameters) {
 
 // Accepts the bare Prowlarr address and tolerates pasted API or Torznab
 // paths ("/api/v1", "/1/api"); a reverse-proxy base path is kept.
-function prowlarrEndpoint(settings, route, parameters = {}) {
+export function prowlarrEndpoint(settings: Pick<DiscoverConnection, "url">, route: string, parameters: Record<string, string | number | (string | number)[]> = {}): string {
   const url = new URL(settings.url)
   const base = url.pathname.replace(/\/+$/, "").replace(/\/(\d+\/)?api(\/v\d+)?$/i, "")
   url.pathname = `${base}${route}`
@@ -212,7 +219,7 @@ function prowlarrEndpoint(settings, route, parameters = {}) {
   return url.toString()
 }
 
-async function fetchText(endpoint, { headers = {}, timeoutMs = REQUEST_TIMEOUT_MS, service = "O indexador" } = {}) {
+async function fetchText(endpoint: string, { headers = {}, timeoutMs = REQUEST_TIMEOUT_MS, service = "O indexador" }: { headers?: Record<string, string>; timeoutMs?: number; service?: string } = {}): Promise<string> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), timeoutMs)
   try {
@@ -232,16 +239,16 @@ async function fetchText(endpoint, { headers = {}, timeoutMs = REQUEST_TIMEOUT_M
   }
 }
 
-async function prowlarrJson(settings, route, parameters, timeoutMs) {
+async function prowlarrJson(settings: DiscoverConnection, route: string, parameters?: Record<string, string | number | (string | number)[]>, timeoutMs?: number): Promise<Loose> {
   const text = await fetchText(prowlarrEndpoint(settings, route, parameters), { headers: { accept: "application/json", "X-Api-Key": settings.apiKey }, timeoutMs, service: "O Prowlarr" })
   try { return JSON.parse(text) } catch { throw new Error("O endereço respondeu, mas não parece ser o Prowlarr. Use o endereço base, por exemplo http://localhost:9696.") }
 }
 
-function requireConfigured(settings) {
+function requireConfigured(settings: DiscoverSettings) {
   if (!isDiscoverConfigured(settings)) throw new Error("Configure o Prowlarr ou um endpoint Torznab antes de buscar.")
 }
 
-function requireTerm(query) {
+function requireTerm(query: unknown) {
   const term = String(query ?? "").trim()
   if (!term) throw new Error("Digite o nome de um artista, álbum ou música para buscar.")
   return term
@@ -249,14 +256,14 @@ function requireTerm(query) {
 
 // t=search is the one mode every Torznab indexer must support; t=music is
 // optional and Jackett's aggregate rejects it unless all its indexers have it.
-async function searchTorznab(settings, query) {
+export async function searchTorznab(settings: DiscoverSettings, query: unknown) {
   requireConfigured(settings)
   const term = requireTerm(query)
   const endpoint = torznabEndpoint(settings, { apikey: settings.apiKey, t: "search", cat: settings.categories, q: term })
   return parseTorznab(await fetchText(endpoint, { headers: { accept: "application/xml" } }))
 }
 
-async function searchProwlarr(settings, query) {
+export async function searchProwlarr(settings: DiscoverSettings, query: unknown) {
   requireConfigured(settings)
   const term = requireTerm(query)
   const parameters = { query: term, type: "search", categories: settings.categories.split(","), limit: MAX_RESULTS }
@@ -265,7 +272,7 @@ async function searchProwlarr(settings, query) {
 
 // Connection test used by the settings sheet; t=caps is the Torznab
 // capability query supported by both Prowlarr and Jackett.
-async function testTorznab(settings) {
+export async function testTorznab(settings: DiscoverSettings): Promise<DiscoverTest> {
   requireConfigured(settings)
   const xml = await fetchText(torznabEndpoint(settings, { apikey: settings.apiKey, t: "caps" }), { headers: { accept: "application/xml" } })
   if (!/<caps[\s>]/i.test(xml)) throw new Error("O endpoint respondeu, mas não parece ser uma API Torznab. Confira a URL.")
@@ -279,7 +286,7 @@ async function testTorznab(settings) {
 // Jackett's aggregate endpoints ("all", tag filters) answer t=indexers; an
 // empty list means every search will return nothing. Other endpoints reject
 // the query, which is reported as "unknown" (null).
-async function countConfiguredIndexers(settings) {
+async function countConfiguredIndexers(settings: DiscoverSettings): Promise<number | null> {
   try {
     const xml = await fetchText(torznabEndpoint(settings, { apikey: settings.apiKey, t: "indexers", configured: "true" }))
     if (!/<indexers[\s>/]/i.test(xml)) return null
@@ -287,33 +294,15 @@ async function countConfiguredIndexers(settings) {
   } catch { return null }
 }
 
-async function testProwlarr(settings) {
+export async function testProwlarr(settings: DiscoverSettings): Promise<DiscoverTest> {
   requireConfigured(settings)
   const status = await prowlarrJson(settings, "/api/v1/system/status")
   if (status?.appName !== "Prowlarr") throw new Error("O endereço respondeu, mas não é o Prowlarr. Use o endereço base, por exemplo http://localhost:9696.")
   const indexers = await prowlarrJson(settings, "/api/v1/indexer")
-  const active = (Array.isArray(indexers) ? indexers : []).filter((indexer) => indexer?.enable && (indexer.protocol === "torrent" || indexer.protocol === 2)).length
+  const active = (Array.isArray(indexers) ? indexers as Loose[] : []).filter((indexer) => indexer?.enable && (indexer.protocol === "torrent" || indexer.protocol === 2)).length
   if (!active) throw new Error("O Prowlarr respondeu, mas não tem nenhum indexador de torrent ativo. Adicione indexadores em Indexers → Add Indexer e teste de novo.")
   return { ok: true, hint: `Prowlarr ${cleanTitle(status.version).slice(0, 20)}, ${active} indexador(es) de torrent ativo(s)` }
 }
 
-const searchDiscover = (settings, query) => settings?.provider === "prowlarr" ? searchProwlarr(settings, query) : searchTorznab(settings, query)
-const testDiscover = (settings) => settings?.provider === "prowlarr" ? testProwlarr(settings) : testTorznab(settings)
-
-module.exports = {
-  DEFAULT_CATEGORIES,
-  cleanDiscoverSettings,
-  isDiscoverConfigured,
-  isIndexerUrl,
-  parseTorrentName,
-  parseTorznab,
-  parseProwlarr,
-  torznabEndpoint,
-  prowlarrEndpoint,
-  searchTorznab,
-  searchProwlarr,
-  searchDiscover,
-  testTorznab,
-  testProwlarr,
-  testDiscover,
-}
+export const searchDiscover = (settings: DiscoverSettings, query: unknown) => settings?.provider === "prowlarr" ? searchProwlarr(settings, query) : searchTorznab(settings, query)
+export const testDiscover = (settings: DiscoverSettings) => settings?.provider === "prowlarr" ? testProwlarr(settings) : testTorznab(settings)

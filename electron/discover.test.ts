@@ -1,6 +1,7 @@
-const test = require("node:test")
-const assert = require("node:assert/strict")
-const {
+import test from "node:test"
+import type { TestContext } from "node:test"
+import assert from "node:assert/strict"
+import {
   cleanDiscoverSettings,
   parseTorrentName,
   parseTorznab,
@@ -13,7 +14,11 @@ const {
   searchDiscover,
   testTorznab,
   testDiscover,
-} = require("./discover.cjs")
+} from "./discover.ts"
+import type { DiscoverSettings } from "../shared/types.ts"
+
+// Search and test functions take full settings; fill what a test leaves out.
+const fullSettings = (value: Partial<DiscoverSettings>): DiscoverSettings => ({ provider: "torznab", url: "", apiKey: "", categories: "3000", profiles: {}, noticeAccepted: false, ...value })
 
 test("cleanDiscoverSettings keeps valid endpoints and defaults the rest", () => {
   const settings = cleanDiscoverSettings({ url: " http://127.0.0.1:9696/api/v1/torznab/1 ", apiKey: " abc ", categories: "3000,3040", noticeAccepted: true })
@@ -102,20 +107,20 @@ test("parseTorznab surfaces Torznab error documents sent with HTTP 200", () => {
 })
 
 // Stubs fetch with canned Torznab answers keyed by the t= parameter.
-function stubFetch(t, answers) {
+function stubFetch(t: TestContext, answers: Record<string, string>) {
   const original = globalThis.fetch
-  const requests = []
+  const requests: URL[] = []
   globalThis.fetch = async (url) => {
-    const parsed = new URL(url)
+    const parsed = new URL(String(url))
     requests.push(parsed)
-    const body = answers[parsed.searchParams.get("t")]
+    const body = answers[parsed.searchParams.get("t") ?? ""]
     return body === undefined ? new Response("<error code=\"202\" description=\"No such function\" />", { status: 200 }) : new Response(body, { status: 200 })
   }
   t.after(() => { globalThis.fetch = original })
   return requests
 }
 
-const jackett = { url: "http://127.0.0.1:9117/api/v2.0/indexers/all/results/torznab/", apiKey: "k", categories: "3000" }
+const jackett = fullSettings({ url: "http://127.0.0.1:9117/api/v2.0/indexers/all/results/torznab/", apiKey: "k", categories: "3000" })
 const emptyRss = "<rss><channel><title>AggregateSearch</title></channel></rss>"
 
 test("searchTorznab uses the mandatory t=search mode with the music categories", async (t) => {
@@ -154,7 +159,7 @@ test("cleanDiscoverSettings keeps a separate profile per provider", () => {
   })
   assert.deepEqual(settings.profiles.prowlarr, { url: "http://localhost:9696/", apiKey: "p", categories: "3000" })
   assert.deepEqual(settings.profiles.torznab, { url: "http://localhost:9117/x", apiKey: "j", categories: "3040" })
-  assert.equal(settings.profiles.lidarr, undefined)
+  assert.equal((settings.profiles as Record<string, unknown>).lidarr, undefined)
 })
 
 test("cleanDiscoverSettings migrates old flat configs into the active profile", () => {
@@ -174,7 +179,7 @@ test("parseTorznab prefers the magneturl attribute and accepts enclosure downloa
 })
 
 test("prowlarrEndpoint accepts the base address, pasted API paths, and proxy prefixes", () => {
-  const route = (url) => prowlarrEndpoint({ url }, "/api/v1/search", { query: "a b", categories: ["3000", "3040"] })
+  const route = (url: string) => prowlarrEndpoint({ url }, "/api/v1/search", { query: "a b", categories: ["3000", "3040"] })
   assert.equal(route("http://localhost:9696"), "http://localhost:9696/api/v1/search?query=a+b&categories=3000&categories=3040")
   assert.equal(route("http://localhost:9696/api/v1/"), "http://localhost:9696/api/v1/search?query=a+b&categories=3000&categories=3040")
   assert.equal(route("http://localhost:9696/1/api"), "http://localhost:9696/api/v1/search?query=a+b&categories=3000&categories=3040")
@@ -202,12 +207,12 @@ test("parseProwlarr keeps torrents, prefers magnets, and collapses duplicates ac
 })
 
 // Stubs fetch with JSON answers keyed by URL path, recording each request.
-function stubProwlarr(t, routes) {
+function stubProwlarr(t: TestContext, routes: Record<string, unknown>) {
   const original = globalThis.fetch
-  const requests = []
+  const requests: { url: URL; headers: Record<string, string> }[] = []
   globalThis.fetch = async (url, options = {}) => {
-    const parsed = new URL(url)
-    requests.push({ url: parsed, headers: options.headers ?? {} })
+    const parsed = new URL(String(url))
+    requests.push({ url: parsed, headers: (options.headers ?? {}) as Record<string, string> })
     const body = routes[parsed.pathname]
     return body === undefined ? new Response("Not Found", { status: 404 }) : new Response(JSON.stringify(body), { status: 200 })
   }
@@ -215,7 +220,7 @@ function stubProwlarr(t, routes) {
   return requests
 }
 
-const prowlarr = { provider: "prowlarr", url: "http://localhost:9696", apiKey: "k", categories: "3000,3040" }
+const prowlarr = fullSettings({ provider: "prowlarr", url: "http://localhost:9696", apiKey: "k", categories: "3000,3040" })
 
 test("searchDiscover uses Prowlarr's native search with the API key header", async (t) => {
   const requests = stubProwlarr(t, { "/api/v1/search": [{ protocol: "torrent", title: "Linkin Park - Meteora", magnetUrl: "magnet:?xt=urn:btih:ffffffffffffffffffffffffffffffffffffffff", seeders: 12 }] })
@@ -234,7 +239,7 @@ test("testDiscover checks that the address is Prowlarr and has active torrent in
 })
 
 test("testDiscover reports Prowlarr without indexers and non-Prowlarr addresses", async (t) => {
-  const routes = { "/api/v1/system/status": { appName: "Prowlarr", version: "2.0.5" }, "/api/v1/indexer": [] }
+  const routes: Record<string, unknown> = { "/api/v1/system/status": { appName: "Prowlarr", version: "2.0.5" }, "/api/v1/indexer": [] }
   stubProwlarr(t, routes)
   await assert.rejects(testDiscover(prowlarr), /nenhum indexador de torrent ativo/)
   routes["/api/v1/system/status"] = { appName: "Sonarr" }

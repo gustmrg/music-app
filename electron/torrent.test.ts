@@ -1,12 +1,16 @@
-const test = require("node:test")
-const assert = require("node:assert/strict")
-const { Readable } = require("node:stream")
-const { EventEmitter } = require("node:events")
-const fs = require("node:fs/promises")
-const os = require("node:os")
-const path = require("node:path")
-const { TorrentEngine, isAudioName, isSupportedSource, normalizeInfoHash, torrentTrackId, defaultFileIndex, decodeBase32, savePath, availablePath, resolveSource } = require("./torrent.cjs")
-const { audioResponse } = require("./audio.cjs")
+import test from "node:test"
+import type { TestContext } from "node:test"
+import assert from "node:assert/strict"
+import { Readable } from "node:stream"
+import { EventEmitter } from "node:events"
+import fs from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+import { TorrentEngine, isAudioName, isSupportedSource, normalizeInfoHash, torrentTrackId, defaultFileIndex, decodeBase32, savePath, availablePath, resolveSource } from "./torrent.ts"
+import { audioResponse } from "./audio.ts"
+import type { VirtualTracks } from "./audio.ts"
+import type { SaveOutcome } from "./torrent.ts"
+import type { Torrent } from "webtorrent"
 
 test("isAudioName matches supported extensions only", () => {
   assert.equal(isAudioName("01 - Track.flac"), true)
@@ -49,23 +53,23 @@ test("defaultFileIndex picks the largest audio file", () => {
   assert.equal(defaultFileIndex([{ name: "a.nfo", length: 5 }]), -1)
 })
 
-// Virtual torrent tracks served by audio.cjs: a fake engine stands in for
+// Virtual torrent tracks served by audio.ts: a fake engine stands in for
 // webtorrent so the range semantics stay testable without the network.
-function fakeEngine(id, length, chunk = "x") {
+function fakeEngine(id: string, length: number, chunk = "x"): VirtualTracks {
   return {
     resolveTrack(requested) {
       if (requested !== id) return null
       return {
         length,
         contentType: "audio/flac",
-        stream: (start, end) => Readable.from([chunk.repeat(Math.min(4096, end - start + 1))]),
+        stream: (start: number, end: number) => Readable.from([chunk.repeat(Math.min(4096, end - start + 1))]),
       }
     },
   }
 }
 
 const library = { resolveTrack: async () => null }
-const request = (id, range, method = "GET") => ({ url: `https://track/${id}`, method, headers: new Headers(range ? { range } : {}) })
+const request = (id: string, range: string | null = null, method = "GET") => new Request(`https://track/${id}`, { method, headers: range ? { range } : {} })
 
 test("audioResponse serves a virtual torrent track with ranges", async () => {
   const id = "a".repeat(64)
@@ -90,6 +94,24 @@ test("audioResponse rejects invalid ranges and unknown ids for torrent tracks", 
   const head = await audioResponse(request(id, null, "HEAD"), library, engine)
   assert.equal(head.status, 200)
   assert.equal(head.headers.get("accept-ranges"), "bytes")
+})
+
+// webtorrent v3 hands out streamx streams, which are async iterable but not
+// Node streams; Readable.toWeb rejects them (ERR_MISSING_OPTION).
+test("audioResponse serves virtual tracks whose streams are not Node streams", async () => {
+  const id = "c".repeat(64)
+  const engine: VirtualTracks = {
+    resolveTrack: (requested) => requested !== id ? null : {
+      length: 6,
+      contentType: "audio/mpeg",
+      stream: (start, end) => ({
+        async *[Symbol.asyncIterator]() { yield Buffer.from("abcdef".slice(start, end + 1)) },
+      }),
+    },
+  }
+  const response = await audioResponse(request(id, "bytes=1-3"), library, engine)
+  assert.equal(response.status, 206)
+  assert.equal(await response.text(), "bcd")
 })
 
 test("savePath keeps torrent paths inside the save folder", () => {
@@ -120,7 +142,8 @@ test("availablePath reuses identical saves and never overwrites different files"
 
 // Fake webtorrent objects: files are EventEmitters that emit "done" once
 // their pieces are verified, exactly like webtorrent's File.
-function fakeTorrent(infoHash, name, entries) {
+// The fakes implement only what TorrentEngine touches, hence the cast.
+function fakeTorrent(infoHash: string, name: string, entries: [relative: string, content: string, done?: boolean][]): Torrent {
   const files = entries.map(([relative, content, done = true]) => Object.assign(new EventEmitter(), {
     name: path.basename(relative),
     path: `${name}/${relative}`,
@@ -129,18 +152,18 @@ function fakeTorrent(infoHash, name, entries) {
     done,
     createReadStream: () => Readable.from([Buffer.from(content)]),
   }))
-  return { infoHash, name, files, destroyed: false, progress: 0, numPeers: 0, downloadSpeed: 0, destroy() { this.destroyed = true } }
+  return { infoHash, name, files, destroyed: false, progress: 0, numPeers: 0, downloadSpeed: 0, destroy(this: { destroyed: boolean }) { this.destroyed = true } } as unknown as Torrent
 }
 
-async function engineFixture(t) {
+async function engineFixture(t: TestContext) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "local-music-engine-"))
   const engine = new TorrentEngine({ cachePath: path.join(root, "cache") })
   t.after(async () => { engine.stopSweeper(); await fs.rm(root, { recursive: true, force: true }) })
-  const outcomes = []
-  let resolveNext
+  const outcomes: SaveOutcome[] = []
+  let resolveNext: ((outcome: SaveOutcome) => void) | undefined
   engine.onSaved = (outcome) => { outcomes.push(outcome); resolveNext?.(outcome) }
-  const nextOutcome = () => new Promise((resolve) => { resolveNext = resolve })
-  const add = (torrent) => { engine.torrents.set(torrent.infoHash, torrent); return torrent }
+  const nextOutcome = () => new Promise<SaveOutcome>((resolve) => { resolveNext = resolve })
+  const add = (torrent: Torrent) => { engine.torrents.set(torrent.infoHash, torrent); return torrent }
   return { root, saveRoot: path.join(root, "Saved"), engine, outcomes, nextOutcome, add }
 }
 
@@ -199,9 +222,9 @@ test("isSupportedSource accepts indexer download links only when vouched for", (
 })
 
 // Stubs fetch with a list of canned responses consumed in order.
-function stubResponses(t, responses) {
+function stubResponses(t: TestContext, responses: Response[]) {
   const original = globalThis.fetch
-  const requests = []
+  const requests: { url: unknown; options?: RequestInit }[] = []
   globalThis.fetch = async (url, options) => {
     requests.push({ url, options })
     const next = responses.shift()
@@ -216,7 +239,7 @@ test("resolveSource follows indexer redirects to magnets without following them 
   const magnet = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=A%20B&tr=udp%3A%2F%2Ftracker"
   const requests = stubResponses(t, [new Response(null, { status: 301, headers: { location: magnet } })])
   assert.equal(await resolveSource("http://localhost:9696/1/download?apikey=k"), magnet)
-  assert.equal(requests[0].options.redirect, "manual")
+  assert.equal(requests[0].options?.redirect, "manual")
   assert.equal(await resolveSource(magnet), magnet) // magnets never hit the network
   assert.equal(requests.length, 1)
 })

@@ -1,6 +1,6 @@
-const { test } = require("node:test")
-const assert = require("node:assert/strict")
-const { matchYouTubeUrl, parseYouTubeLinks, parseMetadata, parseResolved, isLiveInfo, describeYouTube, isYouTubeTrackPath, MAX_PLAYLIST_ENTRIES, STREAM_FORMAT } = require("./youtube.cjs")
+import { test } from "node:test"
+import assert from "node:assert/strict"
+import { matchYouTubeUrl, parseYouTubeLinks, parseMetadata, parseResolved, isLiveInfo, describeYouTube, isYouTubeTrackPath, MAX_PLAYLIST_ENTRIES, STREAM_FORMAT } from "./youtube.ts"
 
 test("recognizes watch, shorts, live, embed, music, and playlist links and canonicalizes them", () => {
   assert.deepEqual(matchYouTubeUrl("https://www.youtube.com/watch?si=x&v=dQw4w9WgXcQ"), { kind: "video", id: "dQw4w9WgXcQ", url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" })

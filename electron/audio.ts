@@ -1,29 +1,48 @@
-const fs = require("node:fs/promises")
-const path = require("node:path")
-const { Readable } = require("node:stream")
+import fs from "node:fs/promises"
+import type { FileHandle } from "node:fs/promises"
+import path from "node:path"
+import { Readable } from "node:stream"
 
-const contentTypes = {
+export const contentTypes: Record<string, string> = {
   ".mp3": "audio/mpeg", ".wav": "audio/wav", ".flac": "audio/flac",
   ".ogg": "audio/ogg", ".opus": "audio/ogg", ".m4a": "audio/mp4",
   ".aac": "audio/aac", ".webm": "audio/webm",
 }
 
+// What the library resolves a track id to: a file on disk, or nothing.
+export interface TrackFiles {
+  resolveTrack(id: string): Promise<string | null>
+}
+
+// A track that exists only in memory, such as a file inside a torrent.
+// Its stream need not be a Node stream: webtorrent v3 returns streamx
+// streams, which are only async iterable.
+export interface VirtualTrack {
+  length: number
+  contentType: string
+  stream(start: number, end: number): AsyncIterable<Uint8Array>
+}
+
+export interface VirtualTracks {
+  resolveTrack(id: string): VirtualTrack | null
+}
+
 // Serve byte ranges explicitly: forwarding Range to net.fetch(file:) is not
 // sufficient for seeking on all Electron versions. `torrents` optionally
 // resolves virtual torrent track ids the same way the library resolves files.
-async function audioResponse(request, library, torrents) {
-  let handle
+export async function audioResponse(request: Request, library: TrackFiles, torrents?: VirtualTracks): Promise<Response> {
+  let handle: FileHandle | undefined
   try {
     const url = new URL(request.url)
     if (url.hostname !== "track" || !/^\/[a-f0-9]{64}$/.test(url.pathname) || !["GET", "HEAD"].includes(request.method)) return new Response(null, { status: 403 })
     const id = url.pathname.slice(1)
-    let file = null
-    let virtual = null
+    let file: string | null = null
+    let virtual: VirtualTrack | null = null
     try { file = await library.resolveTrack(id) } catch { file = null }
     if (!file && torrents) virtual = torrents.resolveTrack(id)
     if (!file && !virtual) return new Response(null, { status: 404 })
-    let size
-    let contentType
+    let size: number
+    let contentType: string
     if (file) {
       handle = await fs.open(file, "r")
       const stat = await handle.stat()
@@ -31,10 +50,10 @@ async function audioResponse(request, library, torrents) {
       size = stat.size
       contentType = contentTypes[path.extname(file).toLowerCase()] || "application/octet-stream"
     } else {
-      size = virtual.length
-      contentType = virtual.contentType
+      size = virtual!.length
+      contentType = virtual!.contentType
     }
-    const headers = { "Content-Type": contentType, "Accept-Ranges": "bytes", "Cache-Control": "no-store" }
+    const headers: Record<string, string> = { "Content-Type": contentType, "Accept-Ranges": "bytes", "Cache-Control": "no-store" }
     const range = request.headers.get("range")
     let start = 0
     let end = size - 1
@@ -53,12 +72,12 @@ async function audioResponse(request, library, torrents) {
     headers["Content-Length"] = String(Math.max(0, end - start + 1))
     const status = range ? 206 : 200
     if (request.method === "HEAD" || !size) { await handle?.close(); return new Response(null, { status, headers }) }
-    const nodeStream = file ? handle.createReadStream({ start, end }) : virtual.stream(start, end)
-    return new Response(Readable.toWeb(nodeStream), { status, headers })
+    // Readable.toWeb only accepts Node streams (it reads their highWaterMark),
+    // so virtual streams are wrapped first.
+    const nodeStream: Readable = file ? handle!.createReadStream({ start, end }) : Readable.from(virtual!.stream(start, end), { objectMode: false })
+    return new Response(Readable.toWeb(nodeStream) as ReadableStream, { status, headers })
   } catch {
     if (handle) await handle.close().catch(() => {})
     return new Response(null, { status: 404 })
   }
 }
-
-module.exports = { audioResponse, contentTypes }
