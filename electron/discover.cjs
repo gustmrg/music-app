@@ -20,7 +20,9 @@ const xmlParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: 
 // Settings are persisted inside the library preferences; anything invalid
 // falls back to defaults so a corrupted file never breaks the app. Configs
 // saved before providers existed were Torznab endpoints.
-function cleanDiscoverSettings(value) {
+// The top-level url/apiKey/categories are the active provider's; `profiles`
+// keeps each provider's own fields so switching providers never mixes them.
+function cleanConnection(value) {
   let url = ""
   if (typeof value?.url === "string") {
     const candidate = value.url.trim()
@@ -29,10 +31,21 @@ function cleanDiscoverSettings(value) {
       if (parsed.protocol === "http:" || parsed.protocol === "https:") url = parsed.toString()
     } catch { /* keep empty */ }
   }
-  const provider = PROVIDERS.includes(value?.provider) ? value.provider : "torznab"
   const apiKey = typeof value?.apiKey === "string" ? value.apiKey.trim().slice(0, 200) : ""
   const categories = typeof value?.categories === "string" && /^(\d{1,5})(,\d{1,5})*$/.test(value.categories.trim()) ? value.categories.trim() : DEFAULT_CATEGORIES
-  return { provider, url, apiKey, categories, noticeAccepted: value?.noticeAccepted === true }
+  return { url, apiKey, categories }
+}
+
+function cleanDiscoverSettings(value) {
+  const provider = PROVIDERS.includes(value?.provider) ? value.provider : "torznab"
+  const active = cleanConnection(value)
+  const profiles = {}
+  for (const name of PROVIDERS) {
+    const saved = value?.profiles?.[name]
+    if (name === provider) profiles[name] = active
+    else if (saved && typeof saved === "object") profiles[name] = cleanConnection(saved)
+  }
+  return { provider, ...active, profiles, noticeAccepted: value?.noticeAccepted === true }
 }
 
 function isDiscoverConfigured(settings) {

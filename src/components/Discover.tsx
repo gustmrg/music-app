@@ -3,7 +3,8 @@ import { Compass, Download, FolderOpen, ListPlus, Loader2, Play, Search, Setting
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
-import { cleanTrackTitle, errorMessage, formatSize, type DiscoverResult, type DiscoverSettings, type TorrentExpansion, type TorrentProgress, type Track } from "@/library"
+import { InfoTip } from "@/components/ui/info-tip"
+import { cleanTrackTitle, errorMessage, formatSize, type DiscoverConnection, type DiscoverProvider, type DiscoverResult, type DiscoverSettings, type TorrentExpansion, type TorrentProgress, type Track } from "@/library"
 
 type Props = {
   settings: DiscoverSettings
@@ -159,7 +160,15 @@ function DiscoverSettingsSheet({ open, onOpenChange, settings, onSave, saveFolde
   const [testResult, setTestResult] = useState("")
 
   const prowlarr = draft.provider === "prowlarr"
-  const cleaned = () => ({ ...draft, url: draft.url.trim(), apiKey: draft.apiKey.trim(), categories: draft.categories.trim() || "3000" })
+  const connection = (): DiscoverConnection => ({ url: draft.url.trim(), apiKey: draft.apiKey.trim(), categories: draft.categories.trim() || "3000" })
+  const cleaned = (): DiscoverSettings => ({ ...draft, ...connection(), profiles: { ...draft.profiles, [draft.provider]: connection() } })
+  // Each provider keeps its own address, key and categories in the draft.
+  const switchProvider = (provider: DiscoverProvider) => {
+    if (provider === draft.provider) return
+    const profiles = { ...draft.profiles, [draft.provider]: { url: draft.url, apiKey: draft.apiKey, categories: draft.categories } }
+    setDraft({ ...draft, ...(profiles[provider] ?? { url: "", apiKey: "", categories: "3000" }), provider, profiles })
+    setTestResult("")
+  }
   const save = () => {
     onSave(cleaned())
     onOpenChange(false)
@@ -178,17 +187,24 @@ function DiscoverSettingsSheet({ open, onOpenChange, settings, onSave, saveFolde
   }
 
   return <Sheet open={open} onOpenChange={(next) => { if (next) { setDraft(settings); setTestResult("") } onOpenChange(next) }}><SheetContent className="local-sheet">
-    <SheetHeader><SheetTitle>Indexador de torrents</SheetTitle><SheetDescription>Conecte o seu Prowlarr ou um endpoint Torznab (como o Jackett). O aplicativo não inclui fontes de busca; nada é consultado sem esta configuração.</SheetDescription></SheetHeader>
+    <SheetHeader><SheetTitle>Indexador de torrents</SheetTitle><SheetDescription>Conecte o seu Prowlarr ou Jackett. Nada é buscado sem esta configuração.</SheetDescription></SheetHeader>
     <form className="playlist-form" onSubmit={(event) => { event.preventDefault(); save() }}>
       <div className="provider-toggle" role="group" aria-label="Tipo de indexador">
-        <Button type="button" size="sm" variant={prowlarr ? "default" : "outline"} aria-pressed={prowlarr} onClick={() => { setDraft({ ...draft, provider: "prowlarr" }); setTestResult("") }}>Prowlarr</Button>
-        <Button type="button" size="sm" variant={prowlarr ? "outline" : "default"} aria-pressed={!prowlarr} onClick={() => { setDraft({ ...draft, provider: "torznab" }); setTestResult("") }}>Torznab (Jackett)</Button>
+        <Button type="button" size="sm" variant={prowlarr ? "default" : "outline"} aria-pressed={prowlarr} onClick={() => switchProvider("prowlarr")}>Prowlarr</Button>
+        <Button type="button" size="sm" variant={prowlarr ? "outline" : "default"} aria-pressed={!prowlarr} onClick={() => switchProvider("torznab")}>Torznab (Jackett)</Button>
       </div>
-      <label>{prowlarr ? "Endereço do Prowlarr" : "Endpoint Torznab"}<Input required value={draft.url} onChange={(event) => setDraft({ ...draft, url: event.target.value })} placeholder={prowlarr ? "http://localhost:9696" : "http://localhost:9117/api/v2.0/indexers/all/results/torznab/"} aria-describedby="endpoint-hint" /></label>
-      <p className="muted" id="endpoint-hint">{prowlarr ? "Use o endereço base do Prowlarr. A busca usa a API do próprio Prowlarr e consulta todos os indexadores ativos de uma vez. A chave fica em Settings → General → Security → API Key." : "Jackett, buscando em todos os indexadores: http://localhost:9117/api/v2.0/indexers/all/results/torznab/. A chave aparece no topo do painel do Jackett."}</p>
-      <label>Chave de API<Input required type="password" value={draft.apiKey} onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })} placeholder={prowlarr ? "(Settings → General no Prowlarr)" : "(topo do painel do Jackett)"} /></label>
-      <label>Categorias<Input value={draft.categories} onChange={(event) => setDraft({ ...draft, categories: event.target.value })} placeholder="3000" aria-describedby="categories-hint" /></label>
-      <p className="muted" id="categories-hint">Padrão 3000 (Música). Use 3000,3010,3040 para buscar só MP3 e FLAC.</p>
+      <div className="form-field">
+        <div className="field-label"><label htmlFor="indexer-url">{prowlarr ? "Endereço do Prowlarr" : "Endpoint Torznab"}</label><InfoTip label="Ajuda sobre o endereço">{prowlarr ? "Use o endereço base do Prowlarr. A busca usa a API do próprio Prowlarr e consulta todos os indexadores ativos de uma vez." : "Para buscar em todos os indexadores do Jackett: http://localhost:9117/api/v2.0/indexers/all/results/torznab/"}</InfoTip></div>
+        <Input id="indexer-url" required value={draft.url} onChange={(event) => setDraft({ ...draft, url: event.target.value })} placeholder={prowlarr ? "http://localhost:9696" : "http://localhost:9117/api/v2.0/indexers/all/results/torznab/"} />
+      </div>
+      <div className="form-field">
+        <div className="field-label"><label htmlFor="indexer-key">Chave de API</label><InfoTip label="Onde encontrar a chave de API">{prowlarr ? "No Prowlarr: Settings → General → Security → API Key." : "No Jackett: aparece no topo do painel."}</InfoTip></div>
+        <Input id="indexer-key" required type="password" value={draft.apiKey} onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })} />
+      </div>
+      <div className="form-field">
+        <div className="field-label"><label htmlFor="indexer-categories">Categorias</label><InfoTip label="Ajuda sobre categorias">Padrão 3000 (Música). Use 3000,3010,3040 para buscar só MP3 e FLAC.</InfoTip></div>
+        <Input id="indexer-categories" value={draft.categories} onChange={(event) => setDraft({ ...draft, categories: event.target.value })} placeholder="3000" />
+      </div>
       <div className="save-folder"><span>Pasta das músicas salvas</span><div><code title={saveFolder}>{saveFolder || "—"}</code><Button type="button" variant="outline" size="sm" onClick={onChooseSaveFolder}><FolderOpen size={14} />Alterar</Button></div></div>
       {testResult ? <p className={`muted ${testResult.startsWith("Conexão OK") ? "discover-ok" : "discover-error"}`} role="status">{testResult}</p> : null}
       <div className="sheet-actions">

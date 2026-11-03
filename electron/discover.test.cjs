@@ -147,6 +147,21 @@ test("cleanDiscoverSettings keeps the provider and defaults old configs to Torzn
   assert.equal(cleanDiscoverSettings({ provider: "lidarr" }).provider, "torznab")
 })
 
+test("cleanDiscoverSettings keeps a separate profile per provider", () => {
+  const settings = cleanDiscoverSettings({
+    provider: "prowlarr", url: "http://localhost:9696", apiKey: "p", categories: "3000",
+    profiles: { torznab: { url: "http://localhost:9117/x", apiKey: "j", categories: "3040" }, prowlarr: { url: "http://stale", apiKey: "old" }, lidarr: { url: "http://x" } },
+  })
+  assert.deepEqual(settings.profiles.prowlarr, { url: "http://localhost:9696/", apiKey: "p", categories: "3000" })
+  assert.deepEqual(settings.profiles.torznab, { url: "http://localhost:9117/x", apiKey: "j", categories: "3040" })
+  assert.equal(settings.profiles.lidarr, undefined)
+})
+
+test("cleanDiscoverSettings migrates old flat configs into the active profile", () => {
+  const settings = cleanDiscoverSettings({ url: "http://localhost:9117/x", apiKey: "j" })
+  assert.deepEqual(settings.profiles, { torznab: { url: "http://localhost:9117/x", apiKey: "j", categories: "3000" } })
+})
+
 test("parseTorznab prefers the magneturl attribute and accepts enclosure downloads", () => {
   const xml = `<rss><channel>
     <item><title>A - One</title><link>http://localhost:9117/dl/x/?jackett_apikey=k&amp;path=p</link><torznab:attr name="seeders" value="3"/><torznab:attr name="magneturl" value="magnet:?dn=One&amp;xt=urn:btih:0123456789abcdef0123456789abcdef01234567"/><jackettindexer id="x">Some Tracker</jackettindexer></item>
