@@ -136,6 +136,9 @@ h1 { margin: 0; font-size: 32px; line-height: 1.2; letter-spacing: -1px; font-we
 .seek { display: flex; align-items: center; gap: 10px; }
 .seek input { width: 100%; }
 .seek span { font-size: 10px; color: #a2a2af; font-variant-numeric: tabular-nums; min-width: 30px; }
+.seek.live { justify-content: center; min-height: 16px; }
+.seek .live-badge { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #f06468; }
+.seek .live-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .player-right { display: flex; align-items: center; justify-content: flex-end; gap: 14px; color: #a2a2af; }
 .player-right input { width: 80px; }
 .local-sheet { width: min(440px, 92vw) !important; max-width: 440px !important; padding: 10px 12px 20px; border-color: #34343e; }

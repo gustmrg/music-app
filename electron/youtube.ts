@@ -125,6 +125,22 @@ export function parseMetadata(payload: string, limit = MAX_PLAYLIST_ENTRIES): { 
 
 type ExecError = Error & { code?: string; killed?: boolean; stderr?: string }
 
+// yt-dlp's English errors for the cases a listener can act on, most
+// specific first. Anything else is shown as yt-dlp wrote it.
+const KNOWN_ERRORS: [RegExp, string][] = [
+  [/live event will begin|premieres in|scheduled to start/i, "Esta transmissão ainda não começou. Tente de novo quando ela estiver ao vivo."],
+  [/live stream recording is not available|live event has ended|this live stream has ended/i, "Esta transmissão terminou e a gravação não está disponível."],
+  [/private video/i, "Este vídeo é privado."],
+  [/available in your country|blocked it in your country|geo.?restrict/i, "Este vídeo não está disponível na sua região."],
+  [/confirm your age|age.?restrict|inappropriate for some users/i, "Este vídeo tem restrição de idade e não pode ser reproduzido sem uma conta."],
+  [/members.?only|join this channel/i, "Este vídeo é exclusivo para membros do canal."],
+  [/video unavailable|has been removed|no longer available/i, "Este vídeo não está mais disponível no YouTube."],
+]
+
+export function describeYtDlpError(details: string): string {
+  return KNOWN_ERRORS.find(([pattern]) => pattern.test(details))?.[1] ?? details
+}
+
 async function ytDlp(arguments_: string[]) {
   try {
     return await execFileAsync("yt-dlp", ["--no-warnings", "--no-progress", "--flat-playlist", ...arguments_], { timeout: 120_000, maxBuffer: 64 * 1024 * 1024 })
@@ -133,7 +149,7 @@ async function ytDlp(arguments_: string[]) {
     if (error.code === "ENOENT") throw new Error("O yt-dlp não foi encontrado. Instale-o (por exemplo, pipx install yt-dlp ou baixe o binário) e reinicie o aplicativo.")
     if (error.killed) throw new Error("A leitura dos metadados do YouTube demorou demais e foi cancelada.")
     const details = String(error.stderr || error.message || "").split(/\r?\n/).filter((line) => line.startsWith("ERROR")).join(" ").trim()
-    throw new Error(details || "Não foi possível ler os metadados deste link do YouTube.")
+    throw new Error(details ? describeYtDlpError(details) : "Não foi possível ler os metadados deste link do YouTube.")
   }
 }
 

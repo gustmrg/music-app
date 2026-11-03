@@ -48,4 +48,4 @@ The app does not update itself. To update, install the latest release over the p
 
 ## YouTube
 
-Importing YouTube links requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) to be installed on your system and available on the `PATH`. The rest of the app works without it.
+Importing YouTube links requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) to be installed on your system and available on the `PATH`. Livestreams also need [ffmpeg](https://ffmpeg.org) on the `PATH` (for example `sudo apt install ffmpeg` or `brew install ffmpeg`), which turns the stream into audio the player can use. The rest of the app works without either.

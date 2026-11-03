@@ -1,6 +1,6 @@
 # 3. YouTube livestreams play through yt-dlp and ffmpeg
 
-- Status: accepted (implementation pending)
+- Status: accepted
 - Date: 2026-11-02
 
 ## Context

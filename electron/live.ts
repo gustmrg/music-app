@@ -163,9 +163,10 @@ class LiveSession {
     const child = this.child
     this.child = null
     if (!child || child.exitCode !== null || child.signalCode !== null) return
-    child.kill("SIGTERM")
-    // ffmpeg normally exits at once; make sure no process outlives the stream.
-    setTimeout(() => { if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL") }, 3000).unref()
+    // ffmpeg only writes to a pipe nobody reads anymore, so there is nothing
+    // to finish gracefully. SIGTERM can take seconds, long enough to outlive
+    // the app when it quits; SIGKILL cannot leave a process behind.
+    child.kill("SIGKILL")
   }
 }
 
