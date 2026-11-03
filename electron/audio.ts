@@ -15,10 +15,12 @@ export interface TrackFiles {
 }
 
 // A track that exists only in memory, such as a file inside a torrent.
+// Its stream need not be a Node stream: webtorrent v3 returns streamx
+// streams, which are only async iterable.
 export interface VirtualTrack {
   length: number
   contentType: string
-  stream(start: number, end: number): Readable
+  stream(start: number, end: number): AsyncIterable<Uint8Array>
 }
 
 export interface VirtualTracks {
@@ -70,7 +72,9 @@ export async function audioResponse(request: Request, library: TrackFiles, torre
     headers["Content-Length"] = String(Math.max(0, end - start + 1))
     const status = range ? 206 : 200
     if (request.method === "HEAD" || !size) { await handle?.close(); return new Response(null, { status, headers }) }
-    const nodeStream: Readable = file ? handle!.createReadStream({ start, end }) : virtual!.stream(start, end)
+    // Readable.toWeb only accepts Node streams (it reads their highWaterMark),
+    // so virtual streams are wrapped first.
+    const nodeStream: Readable = file ? handle!.createReadStream({ start, end }) : Readable.from(virtual!.stream(start, end), { objectMode: false })
     return new Response(Readable.toWeb(nodeStream) as ReadableStream, { status, headers })
   } catch {
     if (handle) await handle.close().catch(() => {})

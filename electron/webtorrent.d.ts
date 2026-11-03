@@ -2,7 +2,11 @@
 // its API that electron/torrent.ts uses.
 declare module "webtorrent" {
   import type { EventEmitter } from "node:events"
-  import type { Readable } from "node:stream"
+
+  // A streamx Readable: async iterable and pipeable, but not a Node stream.
+  export interface FileStream extends AsyncIterable<Uint8Array> {
+    destroy(error?: Error): void
+  }
 
   export interface TorrentFile extends EventEmitter {
     name: string
@@ -10,7 +14,7 @@ declare module "webtorrent" {
     length: number
     downloaded: number
     done: boolean
-    createReadStream(options?: { start?: number; end?: number }): Readable
+    createReadStream(options?: { start?: number; end?: number }): FileStream
   }
 
   export interface Torrent extends EventEmitter {

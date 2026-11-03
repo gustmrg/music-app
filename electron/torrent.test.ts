@@ -96,6 +96,24 @@ test("audioResponse rejects invalid ranges and unknown ids for torrent tracks", 
   assert.equal(head.headers.get("accept-ranges"), "bytes")
 })
 
+// webtorrent v3 hands out streamx streams, which are async iterable but not
+// Node streams; Readable.toWeb rejects them (ERR_MISSING_OPTION).
+test("audioResponse serves virtual tracks whose streams are not Node streams", async () => {
+  const id = "c".repeat(64)
+  const engine: VirtualTracks = {
+    resolveTrack: (requested) => requested !== id ? null : {
+      length: 6,
+      contentType: "audio/mpeg",
+      stream: (start, end) => ({
+        async *[Symbol.asyncIterator]() { yield Buffer.from("abcdef".slice(start, end + 1)) },
+      }),
+    },
+  }
+  const response = await audioResponse(request(id, "bytes=1-3"), library, engine)
+  assert.equal(response.status, 206)
+  assert.equal(await response.text(), "bcd")
+})
+
 test("savePath keeps torrent paths inside the save folder", () => {
   const root = path.resolve("/music/saved")
   assert.equal(savePath(root, "Artist - Album/01 - Song.flac"), path.join(root, "Artist - Album", "01 - Song.flac"))
