@@ -8,14 +8,19 @@ import { Discover } from "@/components/Discover"
 import { audioExtensions, emptyLibrary, errorMessage, filterTracks, folderName, type ImportResult, type Library, type Playlist, type TorrentProgress, type TorrentSaved, type Track } from "@/library"
 
 type View = "library" | "folders" | "playlists" | "liked" | "recent" | "discover"
-const navigation = [
-  { id: "library", label: "Biblioteca", icon: LibraryIcon },
-  { id: "folders", label: "Pastas", icon: Folder },
-  { id: "playlists", label: "Playlists", icon: ListMusic },
-  { id: "liked", label: "Favoritos", icon: Heart },
-  { id: "recent", label: "Recentes", icon: Clock3 },
-  { id: "discover", label: "Descobrir", icon: Compass },
+const navigationGroups = [
+  { label: "OUVIR", items: [
+    { id: "library", label: "Biblioteca", icon: LibraryIcon },
+    { id: "recent", label: "Recentes", icon: Clock3 },
+    { id: "liked", label: "Favoritos", icon: Heart },
+    { id: "discover", label: "Descobrir", icon: Compass },
+  ] },
+  { label: "ORGANIZAR", items: [
+    { id: "playlists", label: "Playlists", icon: ListMusic },
+    { id: "folders", label: "Pastas", icon: Folder },
+  ] },
 ] as const
+const navigation: readonly { id: View; label: string }[] = navigationGroups.flatMap((group): readonly { id: View; label: string }[] => group.items)
 
 export default function App() {
   const [library, setLibrary] = useState<Library>(emptyLibrary)
@@ -238,8 +243,7 @@ export default function App() {
     <input ref={folderInput} type="file" multiple hidden {...{ webkitdirectory: "" }} onChange={(event) => { importBrowserFiles(event.target.files); event.target.value = "" }} />
     <aside className="sidebar">
       <div className="brand window-drag"><span className="brand-icon"><Music2 size={20} /></span>Local Music</div>
-      <div className="sidebar-label">SUA MÚSICA</div>
-      <nav aria-label="Navegação principal">{navigation.map(({ id, label, icon: Icon }) => <Button key={id} variant="ghost" className={`nav-item ${view === id ? "active" : ""}`} aria-current={view === id ? "page" : undefined} onClick={() => navigate(id)}><Icon size={18} />{label}{id === "library" ? <span className="nav-count">{library.tracks.length}</span> : null}</Button>)}</nav>
+      <nav aria-label="Navegação principal">{navigationGroups.map((group) => <div key={group.label} className="nav-group" role="group" aria-labelledby={`nav-${group.label}`}><div id={`nav-${group.label}`} className="sidebar-label">{group.label}</div>{group.items.map(({ id, label, icon: Icon }) => <Button key={id} variant="ghost" className={`nav-item ${view === id ? "active" : ""}`} aria-current={view === id ? "page" : undefined} onClick={() => navigate(id)}><Icon size={18} />{label}{id === "library" ? <span className="nav-count">{library.tracks.length}</span> : null}</Button>)}</div>)}</nav>
       <div className="sidebar-label playlist-label"><span>SUAS PLAYLISTS</span><Button variant="ghost" size="icon-xs" aria-label="Criar playlist" disabled={!loaded} onClick={() => openEditor()}><Plus size={15} /></Button></div>
       <div className="sidebar-playlists">{playlists.length ? playlists.map((playlist) => <button key={playlist.id} className={`sidebar-playlist ${playlistId === playlist.id ? "selected" : ""}`} onClick={() => { navigate("playlists"); setPlaylistId(playlist.id) }}><ListMusic size={16} /><span>{playlist.name}</span></button>) : <p className="sidebar-hint">Suas seleções, do seu jeito.</p>}</div>
       <div className="sidebar-bottom"><span className="status-dot" />{window.desktop ? "Biblioteca local" : "Prévia no navegador"}<small>Sem conta. Sem streaming.</small></div>
