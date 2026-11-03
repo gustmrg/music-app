@@ -83,7 +83,7 @@ test("streams ffmpeg output as unsized AAC", async () => {
   assert.equal(decoder.decode((await reader.read()).value), "frame-1")
   await reader.cancel()
   await tick()
-  assert.equal(ffmpeg.signalCode, "SIGTERM")
+  assert.equal(ffmpeg.signalCode, "SIGKILL")
   assert.equal(lives.active, false)
 })
 
@@ -168,12 +168,12 @@ test("keeps a single ffmpeg: a new live or stopAll closes the previous one", asy
   await firstOpen
   const secondOpen = lives.open(sourceOf(live).source)
   const second = await next()
-  assert.equal(first.signalCode, "SIGTERM")
+  assert.equal(first.signalCode, "SIGKILL")
   second.stdout.write("2")
   await secondOpen
   lives.stopAll()
   await tick()
-  assert.equal(second.signalCode, "SIGTERM")
+  assert.equal(second.signalCode, "SIGKILL")
   assert.equal(lives.active, false)
 })
 
@@ -187,7 +187,7 @@ test("an aborted request stops its ffmpeg", async () => {
   await opened
   controller.abort()
   await tick()
-  assert.equal(ffmpeg.signalCode, "SIGTERM")
+  assert.equal(ffmpeg.signalCode, "SIGKILL")
 })
 
 test("ffmpegAvailable answers for the real binary whether or not it is installed", async () => {

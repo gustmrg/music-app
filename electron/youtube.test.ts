@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { matchYouTubeUrl, parseYouTubeLinks, parseMetadata, parseResolved, isLiveInfo, describeYouTube, isYouTubeTrackPath, MAX_PLAYLIST_ENTRIES, STREAM_FORMAT } from "./youtube.ts"
+import { matchYouTubeUrl, parseYouTubeLinks, parseMetadata, parseResolved, isLiveInfo, describeYouTube, describeYtDlpError, isYouTubeTrackPath, MAX_PLAYLIST_ENTRIES, STREAM_FORMAT } from "./youtube.ts"
 
 test("recognizes watch, shorts, live, embed, music, and playlist links and canonicalizes them", () => {
   assert.deepEqual(matchYouTubeUrl("https://www.youtube.com/watch?si=x&v=dQw4w9WgXcQ"), { kind: "video", id: "dQw4w9WgXcQ", url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" })
@@ -124,4 +124,18 @@ test("describes tracks with stable ids derived from the canonical video URL", ()
   const untitled = describeYouTube("https://www.youtube.com/watch?v=dQw4w9WgXcQ", "  ", "")
   assert.equal(untitled.title, "Vídeo do YouTube")
   assert.equal(untitled.folder, "YouTube")
+})
+
+test("explains the yt-dlp errors a listener can act on", () => {
+  const cases: [string, RegExp][] = [
+    ["ERROR: [youtube] abc: This live event will begin in 2 hours.", /ainda não começou/],
+    ["ERROR: [youtube] jfKfPfyJRdk: This live stream recording is not available.", /transmissão terminou/],
+    ["ERROR: [youtube] abc: Private video. Sign in if you've been granted access to this video", /privado/],
+    ["ERROR: [youtube] abc: The uploader has not made this video available in your country", /sua região/],
+    ["ERROR: [youtube] abc: Sign in to confirm your age. This video may be inappropriate for some users.", /restrição de idade/],
+    ["ERROR: [youtube] abc: Join this channel to get access to members-only content like this video", /membros/],
+    ["ERROR: [youtube] abc: Video unavailable. This video has been removed by the uploader", /não está mais disponível/],
+  ]
+  for (const [details, expected] of cases) assert.match(describeYtDlpError(details), expected, details)
+  assert.equal(describeYtDlpError("ERROR: something new"), "ERROR: something new")
 })

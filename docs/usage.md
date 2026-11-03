@@ -19,6 +19,7 @@
 - The player plays real files, with pause/resume, seeking, volume, previous/next, repeat, and shuffle. In order mode, playback stops at the end of the queue.
 - The queue is temporary and independent from playlists. Use **Save playlist** to keep it.
 - **YouTube** (desktop) imports YouTube videos and playlists from pasted links, one per line, and creates a playlist when the submission has several videos. It requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) installed on the system. No video is downloaded: the audio is resolved through yt-dlp when the track starts playing, because stream addresses expire within a few hours.
+- **YouTube livestreams** (desktop) play from a video link or a channel's live page (`https://www.youtube.com/@channel/live`). The player shows **Ao vivo** instead of a seek bar. Pausing stops the stream, and resuming returns to the live moment. A dropped stream reconnects on its own, and the player never skips to the next track because a live ended. Livestreams need [ffmpeg](https://ffmpeg.org) installed.
 
 - **Discover** (desktop) searches your own Prowlarr or Torznab endpoint (such as Jackett), configured per provider in **Indexer**. Expanding a result lists its audio files; play the album or any track by streaming, or save them into the music save folder (default `~/Music/Local Music`), after which they are imported into the library. Torrents are stopped and their cache removed when playback moves on; nothing is seeded afterwards.
 
