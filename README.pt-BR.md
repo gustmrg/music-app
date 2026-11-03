@@ -40,7 +40,7 @@ npm run dev          # Vite + Electron
 npm test
 ```
 
-Requer Node.js 22 ou mais recente. Veja [Development](docs/development.md) para a estrutura do projeto.
+Requer Node.js 22.12 ou mais recente (o CI usa o 24, a versão embutida no Electron). Veja [Development](docs/development.md) para a estrutura do projeto.
 
 ## Documentação
 

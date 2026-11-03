@@ -4,7 +4,7 @@ The installers are on the [Releases](https://github.com/gustmrg/music-app/releas
 
 | System | File | Architecture |
 | --- | --- | --- |
-| macOS | `local-music-<version>-mac-arm64.dmg` | Apple Silicon |
+| macOS | `local-music-<version>-mac-arm64.dmg` | Apple Silicon, macOS 13 or later |
 | Windows | `local-music-<version>-win-x64.exe` | x64 |
 | Linux | `local-music-<version>-linux-<arch>.AppImage` or `.deb` | x64 |
 

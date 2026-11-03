@@ -79,22 +79,36 @@ for (const [channel, action] of [
   })
 }
 
+// Since Electron 43, dialogs without defaultPath always open in Downloads,
+// so the library dialogs share the last folder the user picked from.
+let lastDialogFolder = ""
+const startIn = (name = "") => lastDialogFolder ? path.join(lastDialogFolder, name) : name || undefined
+const rememberFolder = (folder) => { if (folder) lastDialogFolder = folder }
+
 handle("library:load", () => library.snapshot())
 handle("library:files", async (win) => {
-  const selection = await dialog.showOpenDialog(win, { title: "Abrir músicas", properties: ["openFile", "multiSelections"], filters: [{ name: "Áudio", extensions: AUDIO_EXTENSIONS }] })
-  return selection.canceled ? null : library.addFiles(selection.filePaths)
+  const selection = await dialog.showOpenDialog(win, { title: "Abrir músicas", defaultPath: startIn(), properties: ["openFile", "multiSelections"], filters: [{ name: "Áudio", extensions: AUDIO_EXTENSIONS }] })
+  if (selection.canceled) return null
+  rememberFolder(path.dirname(selection.filePaths[0]))
+  return library.addFiles(selection.filePaths)
 })
 handle("library:folder", async (win) => {
-  const selection = await dialog.showOpenDialog(win, { title: "Adicionar pasta de músicas", properties: ["openDirectory"] })
-  return selection.canceled ? null : library.addFolder(selection.filePaths[0])
+  const selection = await dialog.showOpenDialog(win, { title: "Adicionar pasta de músicas", defaultPath: startIn(), properties: ["openDirectory"] })
+  if (selection.canceled) return null
+  // Start the next pick next to this folder, where sibling folders live.
+  rememberFolder(path.dirname(selection.filePaths[0]))
+  return library.addFolder(selection.filePaths[0])
 })
 handle("library:import-playlist", async (win) => {
-  const selection = await dialog.showOpenDialog(win, { title: "Importar playlist local", properties: ["openFile"], filters: [{ name: "Playlist UTF-8", extensions: ["m3u8", "m3u"] }] })
-  return selection.canceled ? null : library.importPlaylist(selection.filePaths[0])
+  const selection = await dialog.showOpenDialog(win, { title: "Importar playlist local", defaultPath: startIn(), properties: ["openFile"], filters: [{ name: "Playlist UTF-8", extensions: ["m3u8", "m3u"] }] })
+  if (selection.canceled) return null
+  rememberFolder(path.dirname(selection.filePaths[0]))
+  return library.importPlaylist(selection.filePaths[0])
 })
 handle("library:export-playlist", async (win, ids) => {
-  const selection = await dialog.showSaveDialog(win, { title: "Exportar playlist", defaultPath: "Playlist.m3u8", filters: [{ name: "Playlist UTF-8", extensions: ["m3u8"] }] })
+  const selection = await dialog.showSaveDialog(win, { title: "Exportar playlist", defaultPath: startIn("Playlist.m3u8"), filters: [{ name: "Playlist UTF-8", extensions: ["m3u8"] }] })
   if (selection.canceled || !selection.filePath) return false
+  rememberFolder(path.dirname(selection.filePath))
   await library.exportPlaylist(selection.filePath, ids)
   return true
 })
