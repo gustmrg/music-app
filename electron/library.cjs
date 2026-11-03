@@ -66,7 +66,7 @@ class LocalLibrary {
     if (saved.version !== 1 || !Array.isArray(saved.tracks)) throw new Error("Biblioteca local inválida; o arquivo salvo foi preservado.")
     for (const track of saved.tracks) {
       if (track?.source === "youtube" && isYouTubeTrackPath(track.path)) {
-        const item = { ...describeYouTube(track.path, track.title, track.folder), addedAt: Number.isSafeInteger(track.addedAt) ? track.addedAt : 0 }
+        const item = { ...describeYouTube(track.path, track.title, track.folder, track.isLive), addedAt: Number.isSafeInteger(track.addedAt) ? track.addedAt : 0 }
         this.tracks.set(item.id, item)
       } else if (track && typeof track.path === "string" && path.isAbsolute(track.path) && isLocal(track.path) && isAudio(track.path)) {
         // Tags cached at import are reused; files are read again only when
@@ -179,7 +179,7 @@ class LocalLibrary {
     const imported = []
     for (const video of videos) {
       if (!video || !isYouTubeTrackPath(video.url)) continue
-      const track = describeYouTube(video.url, video.title, video.channel)
+      const track = describeYouTube(video.url, video.title, video.channel, video.isLive)
       track.addedAt = this.tracks.get(track.id)?.addedAt || Date.now()
       if (!this.tracks.has(track.id)) imported.push(track.id)
       this.tracks.set(track.id, track)
@@ -192,6 +192,16 @@ class LocalLibrary {
       skipped: videos.length - unique.length,
       playlist: playlistName && videos.length > 1 ? { id: randomUUID(), name: playlistName, trackIds: unique } : undefined,
     }
+  }
+
+  // A video can start or stop streaming after it was imported; playback
+  // reports the current state. Returns whether the stored track changed.
+  async setLive(id, isLive) {
+    const track = this.tracks.get(id)
+    if (!track || track.source !== "youtube" || track.isLive === (isLive === true)) return false
+    this.tracks.set(id, { ...track, isLive: isLive === true })
+    await this.persist()
+    return true
   }
 
   // Reads tags of tracks imported before tag support, in small batches so the

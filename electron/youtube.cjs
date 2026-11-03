@@ -4,11 +4,18 @@ const { createHash } = require("node:crypto")
 
 const execFileAsync = promisify(execFile)
 
-// Accepts watch pages, youtu.be shorts, YouTube Music, and playlists.
+// Accepts watch pages, youtu.be, Shorts, live and embed links, YouTube Music, and playlists.
 const VIDEO_PATTERN = /(?:youtube(?:-nocookie|music)?\.com\/(?:watch\?(?:.*&)?v=|shorts\/|live\/|embed\/)|youtu\.be\/)([\w-]{11})/i
 const PLAYLIST_PATTERN = /youtube(?:-nocookie|music)?\.com\/playlist\?(?:.*&)?list=([\w-]+)/i
 const LIST_PARAMETER = /[?&]list=([\w-]+)/i
+// A channel's "/live" page points at whatever it is streaming right now:
+// @handle, /channel/UC…, /c/name, and /user/name all have one.
+const CHANNEL_LIVE_PATTERN = /^https?:\/\/(?:www\.|m\.)?youtube\.com\/(@[^/?#\s]+|channel\/UC[\w-]{22}|c\/[^/?#\s]+|user\/[^/?#\s]+)\/live\/?(?:[?#]\S*)?$/i
 const MAX_PLAYLIST_ENTRIES = 500
+// Lives have no audio-only format, so "bestaudio" alone would fall back to
+// the 1080p HLS variant. Format 91 (144p) carries the same AAC audio with a
+// fraction of the bandwidth; regular videos still get an audio-only format.
+const STREAM_FORMAT = "bestaudio/91/worst"
 
 function canonicalVideoUrl(id) {
   return `https://www.youtube.com/watch?v=${id}`
@@ -16,6 +23,10 @@ function canonicalVideoUrl(id) {
 
 function canonicalPlaylistUrl(id) {
   return `https://www.youtube.com/playlist?list=${id}`
+}
+
+function canonicalChannelLiveUrl(channel) {
+  return `https://www.youtube.com/${channel}/live`
 }
 
 function matchYouTubeUrl(value) {
@@ -26,7 +37,25 @@ function matchYouTubeUrl(value) {
   if (playlist) return { kind: "playlist", id: playlist[1], url: canonicalPlaylistUrl(playlist[1]) }
   const video = VIDEO_PATTERN.exec(trimmed)
   if (video) return { kind: "video", id: video[1], url: canonicalVideoUrl(video[1]) }
+  const channel = CHANNEL_LIVE_PATTERN.exec(trimmed)
+  if (channel) return { kind: "channel-live", id: channel[1], url: canonicalChannelLiveUrl(channel[1]) }
   return null
+}
+
+// yt-dlp reports "is_live", "is_upcoming", "was_live", "post_live", or
+// "not_live"; older or flat entries may only carry the is_live boolean.
+// Scheduled and ended streams are not live: they become live (or a regular
+// recording) later, and resolving at play time picks that up.
+function isLiveInfo(info) {
+  if (!info || typeof info !== "object") return false
+  if (typeof info.live_status === "string") return info.live_status === "is_live"
+  return info.is_live === true
+}
+
+// yt-dlp appends the current date and time to a live's title; fulltitle
+// keeps the title as the channel wrote it.
+function videoTitle(info) {
+  return cleanTitle(info.fulltitle || info.title)
 }
 
 // Parses free-form user text into unique canonical YouTube targets.
@@ -48,7 +77,7 @@ function cleanTitle(value) {
   return String(value ?? "").replace(/[\t\r\n]+/g, " ").trim().slice(0, 200)
 }
 
-// Flattens yt-dlp -J --flat-playlist output into { id, url, title, channel } entries.
+// Flattens yt-dlp -J --flat-playlist output into { id, url, title, channel, isLive } entries.
 function parseMetadata(payload, limit = MAX_PLAYLIST_ENTRIES) {
   const json = JSON.parse(payload)
   if (!json || typeof json !== "object") throw new Error("Resposta inesperada do yt-dlp.")
@@ -59,8 +88,9 @@ function parseMetadata(payload, limit = MAX_PLAYLIST_ENTRIES) {
         return {
           id: entry.id,
           url: canonicalVideoUrl(entry.id),
-          title: cleanTitle(entry.title) || "Vídeo do YouTube",
+          title: videoTitle(entry) || "Vídeo do YouTube",
           channel: cleanTitle(entry.channel || entry.uploader || ""),
+          isLive: isLiveInfo(entry),
         }
       })
       .filter(Boolean)
@@ -73,8 +103,9 @@ function parseMetadata(payload, limit = MAX_PLAYLIST_ENTRIES) {
     videos: [{
       id: json.id,
       url: canonicalVideoUrl(json.id),
-      title: cleanTitle(json.title) || "Vídeo do YouTube",
+      title: videoTitle(json) || "Vídeo do YouTube",
       channel: cleanTitle(json.channel || json.uploader || ""),
+      isLive: isLiveInfo(json),
     }],
   }
 }
@@ -96,16 +127,23 @@ async function fetchVideos(target) {
   return parseMetadata(stdout)
 }
 
-// Resolves the direct audio stream URL for playback. Googlevideo URLs expire
-// after a few hours, so this must run at play time, not import time.
-async function resolveStream(url) {
-  const { stdout } = await ytDlp(["-f", "bestaudio/best", "--no-playlist", "--print", "%(url)s", url])
-  const stream = stdout.trim().split(/\r?\n/).filter(Boolean).pop()
-  if (!stream || !/^https:\/\//.test(stream)) throw new Error("Não foi possível obter o áudio deste vídeo. Ele pode ser privado, com restrição de idade ou indisponível.")
-  return stream
+// Reads the two lines printed by resolveStream: live status, then stream URL.
+function parseResolved(stdout) {
+  const lines = String(stdout ?? "").trim().split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  const url = lines.at(-1)
+  if (!url || !/^https:\/\//.test(url)) throw new Error("Não foi possível obter o áudio deste vídeo. Ele pode ser privado, com restrição de idade ou indisponível.")
+  return { url, isLive: lines.at(-2) === "is_live" }
 }
 
-function describeYouTube(url, title, channel) {
+// Resolves the stream URL for playback and whether the video is live right
+// now. Googlevideo URLs expire after a few hours, so this must run at play
+// time, not import time.
+async function resolveStream(url) {
+  const { stdout } = await ytDlp(["-f", STREAM_FORMAT, "--no-playlist", "--print", "%(live_status)s", "--print", "%(url)s", url])
+  return parseResolved(stdout)
+}
+
+function describeYouTube(url, title, channel, isLive = false) {
   const path = canonicalVideoUrl(VIDEO_PATTERN.exec(url)?.[1] ?? url)
   return {
     id: createHash("sha256").update(path).digest("hex"),
@@ -114,6 +152,7 @@ function describeYouTube(url, title, channel) {
     folder: cleanTitle(channel) || "YouTube",
     format: "YouTube",
     source: "youtube",
+    isLive: isLive === true,
   }
 }
 
@@ -125,10 +164,14 @@ module.exports = {
   VIDEO_PATTERN,
   PLAYLIST_PATTERN,
   LIST_PARAMETER,
+  CHANNEL_LIVE_PATTERN,
   MAX_PLAYLIST_ENTRIES,
+  STREAM_FORMAT,
   matchYouTubeUrl,
   parseYouTubeLinks,
   parseMetadata,
+  parseResolved,
+  isLiveInfo,
   fetchVideos,
   resolveStream,
   describeYouTube,

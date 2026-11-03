@@ -1,5 +1,5 @@
 export type TrackTags = { artist?: string; albumArtist?: string; album?: string; genre?: string; year?: number; trackNo?: number; discNo?: number; duration?: number; cover?: string }
-export type Track = TrackTags & { id: string; path: string; title: string; folder: string; format: string; url?: string; source?: "youtube" | "torrent"; infoHash?: string; addedAt?: number; scanned?: boolean }
+export type Track = TrackTags & { id: string; path: string; title: string; folder: string; format: string; url?: string; source?: "youtube" | "torrent"; isLive?: boolean; infoHash?: string; addedAt?: number; scanned?: boolean }
 // In-app tag overrides; files are never modified. "" (or year 0) clears a field.
 export type TagEdit = { artist?: string; albumArtist?: string; album?: string; genre?: string; year?: number }
 export type Album = { key: string; title: string; artist: string; year?: number; cover?: string; trackIds: string[] }
