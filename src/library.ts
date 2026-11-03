@@ -1,10 +1,14 @@
-export type Track = { id: string; path: string; title: string; folder: string; format: string; url?: string; source?: "youtube" | "torrent"; infoHash?: string }
+export type TrackTags = { artist?: string; albumArtist?: string; album?: string; genre?: string; year?: number; trackNo?: number; discNo?: number; duration?: number; cover?: string }
+export type Track = TrackTags & { id: string; path: string; title: string; folder: string; format: string; url?: string; source?: "youtube" | "torrent"; infoHash?: string; addedAt?: number; scanned?: boolean }
+// In-app tag overrides; files are never modified. "" (or year 0) clears a field.
+export type TagEdit = { artist?: string; albumArtist?: string; album?: string; genre?: string; year?: number }
+export type Album = { key: string; title: string; artist: string; year?: number; cover?: string; trackIds: string[] }
 export type Playlist = { id: string; name: string; trackIds: string[] }
 export type DiscoverProvider = "prowlarr" | "torznab"
 export type DiscoverConnection = { url: string; apiKey: string; categories: string }
 // Top-level fields are the active provider's; profiles keep each provider's own.
 export type DiscoverSettings = DiscoverConnection & { provider: DiscoverProvider; profiles: Partial<Record<DiscoverProvider, DiscoverConnection>>; noticeAccepted: boolean }
-export type Preferences = { liked: string[]; recent: string[]; playlists: Playlist[]; volume: number; discover: DiscoverSettings }
+export type Preferences = { liked: string[]; recent: string[]; playlists: Playlist[]; volume: number; discover: DiscoverSettings; tagEdits: Record<string, TagEdit> }
 export type Library = Preferences & { tracks: Track[]; saveFolder: string }
 export type ImportResult = { tracks: Track[]; imported: string[]; skipped: number; playlist?: Playlist }
 export type DiscoverResult = { title: string; artist: string; album: string; year: string; format: string; display: string; size: number; seeders: number; indexer: string; publishedAt: string; source: string }
@@ -15,7 +19,7 @@ export type SaveProgress = { files: number; done: number; progress: number }
 export type TorrentProgress = { infoHash: string; name: string; progress: number; peers: number; speed: number; saving?: SaveProgress }
 export type SaveStarted = { infoHash: string; name: string; queued: number; pending: number }
 export type TorrentSaved = { name: string; saved: number; failed: number; cancelled: boolean; result: ImportResult | null; error?: string }
-export const emptyLibrary: Library = { tracks: [], liked: [], recent: [], playlists: [], volume: 0.7, discover: { provider: "torznab", url: "", apiKey: "", categories: "3000", profiles: {}, noticeAccepted: false }, saveFolder: "" }
+export const emptyLibrary: Library = { tracks: [], liked: [], recent: [], playlists: [], tagEdits: {}, volume: 0.7, discover: { provider: "torznab", url: "", apiKey: "", categories: "3000", profiles: {}, noticeAccepted: false }, saveFolder: "" }
 export const audioExtensions = /\.(mp3|wav|flac|ogg|opus|m4a|aac|webm)$/i
 export const folderName = (folder: string) => folder.split(/[\\/]/).filter(Boolean).pop() || "Arquivos avulsos"
 // ipcRenderer.invoke wraps main-process errors as
@@ -34,10 +38,48 @@ export function formatSize(bytes: number) {
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
 }
+export const normalize = (text: string) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase()
 export function filterTracks(tracks: Track[], search: string) {
-  const normalize = (text: string) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase()
   const query = normalize(search.trim())
-  return query ? tracks.filter((track) => normalize(`${track.title} ${track.path}`).includes(query)) : tracks
+  return query ? tracks.filter((track) => normalize(`${track.title} ${track.artist ?? ""} ${track.album ?? ""} ${track.path}`).includes(query)) : tracks
+}
+export const coverUrl = (track?: { cover?: string }) => track?.cover ? `local-music://cover/${track.cover}` : undefined
+// YouTube tracks have no tags; their channel stands in for the artist.
+export const trackArtist = (track: Track) => track.artist || (track.source === "youtube" ? track.folder : "")
+export function applyTagEdit(track: Track, edit?: TagEdit): Track {
+  if (!edit) return track
+  const merged: Track = { ...track }
+  for (const field of ["artist", "albumArtist", "album", "genre"] as const) {
+    if (edit[field] !== undefined) merged[field] = edit[field] || undefined
+  }
+  if (edit.year !== undefined) merged.year = edit.year || undefined
+  return merged
+}
+// Tracks group by album title plus album artist; without an album artist the
+// folder stands in, so same-named albums from different rips stay apart.
+export function albumKey(track: Track) {
+  if (!track.album) return ""
+  return `${normalize(track.album)}\u0000${track.albumArtist ? `a:${normalize(track.albumArtist)}` : `f:${track.folder}`}`
+}
+export const compareTrackNumbers = (a: Track, b: Track) => (a.discNo ?? 0) - (b.discNo ?? 0) || (a.trackNo ?? 0) - (b.trackNo ?? 0) || a.title.localeCompare(b.title, "pt-BR", { numeric: true })
+export function buildAlbums(tracks: Track[]): Album[] {
+  const groups = new Map<string, Track[]>()
+  for (const track of tracks) {
+    const key = albumKey(track)
+    if (key) groups.set(key, [...(groups.get(key) ?? []), track])
+  }
+  return [...groups].map(([key, items]) => {
+    const sorted = [...items].sort(compareTrackNumbers)
+    const artists = new Set(sorted.map((track) => track.artist).filter(Boolean))
+    return {
+      key,
+      title: sorted[0].album!,
+      artist: sorted.find((track) => track.albumArtist)?.albumArtist ?? (artists.size === 1 ? [...artists][0]! : artists.size ? "Vários artistas" : ""),
+      year: sorted.find((track) => track.year)?.year,
+      cover: sorted.find((track) => track.cover)?.cover,
+      trackIds: sorted.map((track) => track.id),
+    }
+  }).sort((a, b) => a.artist.localeCompare(b.artist, "pt-BR") || a.title.localeCompare(b.title, "pt-BR"))
 }
 // Torrent files usually arrive as "01 - Name.flac" or "01_Name.flac".
 export function cleanTrackTitle(fileName: string) {

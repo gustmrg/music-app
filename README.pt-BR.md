@@ -35,7 +35,7 @@ Requer Node.js 22 ou superior. As mudanças entram por pull request.
 
 ## Direção
 
-O foco é ser um player local simples e rápido. Ficaram de fora da primeira versão, e são os candidatos naturais para as próximas: leitura de tags de artista e álbum, capas embutidas, monitoramento automático de pastas, equalizador e letras. O escopo completo está no [SPEC](SPEC.md) (em inglês).
+O foco é ser um player local simples e rápido. Ficaram de fora da primeira versão, e são os candidatos naturais para as próximas: monitoramento automático de pastas, equalizador e letras. O escopo completo está no [SPEC](SPEC.md) (em inglês).
 
 ## Documentação
 

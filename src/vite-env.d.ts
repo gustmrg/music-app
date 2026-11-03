@@ -24,6 +24,7 @@ interface Window {
     saveTorrentTrack: (id: string) => Promise<import("./library").SaveStarted>
     chooseSaveFolder: () => Promise<string | null>
     onTorrentSaved: (listener: (outcome: import("./library").TorrentSaved) => void) => () => void
+    onLibraryTracks: (listener: (tracks: import("./library").Track[]) => void) => () => void
     onTorrentProgress: (listener: (snapshot: import("./library").TorrentProgress[]) => void) => () => void
   }
 }

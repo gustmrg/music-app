@@ -35,7 +35,7 @@ Requires Node.js 22 or later. Changes go in through pull requests.
 
 ## Direction
 
-The goal is to be a simple, fast local player. Left out of the first version, and the natural candidates for what comes next: reading artist and album tags, embedded cover art, automatic folder watching, an equalizer, and lyrics. The full scope is in the [SPEC](SPEC.md).
+The goal is to be a simple, fast local player. Left out of the first version, and the natural candidates for what comes next: automatic folder watching, an equalizer, and lyrics. The full scope is in the [SPEC](SPEC.md).
 
 ## Documentation
 

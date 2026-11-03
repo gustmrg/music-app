@@ -1,16 +1,21 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
-import { ArrowDown, ArrowUp, Clock3, Compass, FileAudio, Folder, FolderPlus, Heart, Library as LibraryIcon, ListMusic, Maximize2, Minus, Music2, Pencil, Play, Plus, Search, Trash2, Upload, X, Youtube } from "lucide-react"
+import { ArrowDown, ArrowUp, Clock3, Compass, Disc3, FileAudio, Folder, FolderPlus, Heart, Library as LibraryIcon, ListMusic, ListPlus, Maximize2, Minus, Music2, Pencil, Play, Plus, Search, Tags, Trash2, Upload, X, Youtube } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Player, type PlayMode } from "@/components/Player"
 import { Discover } from "@/components/Discover"
-import { audioExtensions, emptyLibrary, errorMessage, filterTracks, folderName, type ImportResult, type Library, type Playlist, type TorrentProgress, type TorrentSaved, type Track } from "@/library"
+import { Cover } from "@/components/Cover"
+import { TrackTable } from "@/components/TrackTable"
+import { LibraryFilters, applyFilters, emptyFilters, type Filters } from "@/components/LibraryFilters"
+import { TagEditor } from "@/components/TagEditor"
+import { albumKey, applyTagEdit, audioExtensions, buildAlbums, emptyLibrary, errorMessage, filterTracks, folderName, normalize, type ImportResult, type Library, type Playlist, type TagEdit, type TorrentProgress, type TorrentSaved, type Track } from "@/library"
 
-type View = "library" | "folders" | "playlists" | "liked" | "recent" | "discover"
+type View = "library" | "albums" | "folders" | "playlists" | "liked" | "recent" | "discover"
 const navigationGroups = [
   { label: "OUVIR", items: [
     { id: "library", label: "Biblioteca", icon: LibraryIcon },
+    { id: "albums", label: "Álbuns", icon: Disc3 },
     { id: "recent", label: "Recentes", icon: Clock3 },
     { id: "liked", label: "Favoritos", icon: Heart },
     { id: "discover", label: "Descobrir", icon: Compass },
@@ -28,6 +33,10 @@ export default function App() {
   const [view, setView] = useState<View>("library")
   const [folder, setFolder] = useState<string | null>(null)
   const [playlistId, setPlaylistId] = useState("")
+  const [albumId, setAlbumId] = useState("")
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [filters, setFilters] = useState<Filters>(emptyFilters)
+  const [tagEditorOpen, setTagEditorOpen] = useState(false)
   const [search, setSearch] = useState("")
   const query = useDeferredValue(search)
   const [queue, setQueue] = useState<string[]>([])
@@ -52,10 +61,17 @@ export default function App() {
     return () => { active = false }
   }, [notify])
 
-  const { liked, recent, playlists, volume, discover } = library
+  const { liked, recent, playlists, volume, discover, tagEdits } = library
   useEffect(() => {
-    if (loaded && window.desktop) void window.desktop.savePreferences({ liked, recent, playlists, volume, discover }).catch(() => notify("Não foi possível salvar as alterações da biblioteca neste computador."))
-  }, [loaded, liked, recent, playlists, volume, discover, notify])
+    if (loaded && window.desktop) void window.desktop.savePreferences({ liked, recent, playlists, volume, discover, tagEdits }).catch(() => notify("Não foi possível salvar as alterações da biblioteca neste computador."))
+  }, [loaded, liked, recent, playlists, volume, discover, tagEdits, notify])
+
+  // Tags of older libraries are read in the background after loading.
+  useEffect(() => {
+    const subscribe = window.desktop?.onLibraryTracks
+    if (!subscribe) return
+    return subscribe((tracks) => setLibrary((value) => ({ ...value, tracks })))
+  }, [])
 
   useEffect(() => () => { for (const track of browserTracks.current.values()) if (track.url) URL.revokeObjectURL(track.url) }, [])
 
@@ -72,29 +88,35 @@ export default function App() {
     })
   }, [])
 
+  // Library tracks with the user's in-app tag edits applied.
+  const tracks = useMemo(() => library.tracks.map((track) => applyTagEdit(track, tagEdits[track.id])), [library.tracks, tagEdits])
+  const albums = useMemo(() => buildAlbums(tracks), [tracks])
+  const selectedAlbum = view === "albums" ? albums.find((album) => album.key === albumId) : undefined
   const trackMap = useMemo(() => {
-    const map = new Map(library.tracks.map((track) => [track.id, track]))
+    const map = new Map(tracks.map((track) => [track.id, track]))
     for (const track of discoverTracks) map.set(track.id, track)
     return map
-  }, [library.tracks, discoverTracks])
+  }, [tracks, discoverTracks])
   const likedIds = useMemo(() => new Set(liked), [liked])
   const selectedPlaylist = playlists.find((playlist) => playlist.id === playlistId)
   const fromIds = (ids: string[]) => ids.flatMap((id) => { const track = trackMap.get(id); return track ? [track] : [] })
   const visibleTracks = useMemo(() => {
-    let items = library.tracks
-    if (view === "liked") items = items.filter((track) => likedIds.has(track.id))
+    let items = tracks
+    if (view === "library") items = applyFilters(items, filters, likedIds)
+    else if (view === "albums") items = selectedAlbum ? selectedAlbum.trackIds.flatMap((id) => trackMap.get(id) ? [trackMap.get(id)!] : []) : []
+    else if (view === "liked") items = items.filter((track) => likedIds.has(track.id))
     else if (view === "recent") items = recent.flatMap((id) => trackMap.get(id) ? [trackMap.get(id)!] : [])
     else if (view === "folders" && folder !== null) items = items.filter((track) => track.folder === folder)
     else if (view === "playlists" && selectedPlaylist) items = selectedPlaylist.trackIds.flatMap((id) => trackMap.get(id) ? [trackMap.get(id)!] : [])
     return filterTracks(items, query)
-  }, [library.tracks, view, likedIds, recent, trackMap, folder, selectedPlaylist, query])
+  }, [tracks, view, filters, likedIds, recent, trackMap, folder, selectedPlaylist, selectedAlbum, query])
   const folders = useMemo(() => {
     const counts = new Map<string, number>()
-    for (const track of library.tracks) counts.set(track.folder, (counts.get(track.folder) ?? 0) + 1)
+    for (const track of tracks) counts.set(track.folder, (counts.get(track.folder) ?? 0) + 1)
     return [...counts].sort(([a], [b]) => a.localeCompare(b, "pt-BR"))
-  }, [library.tracks])
+  }, [tracks])
 
-  const navigate = (next: View) => { setView(next); setFolder(null); setPlaylistId(""); setSearch("") }
+  const navigate = (next: View) => { setView(next); setFolder(null); setPlaylistId(""); setAlbumId(""); setSearch(""); setSelected(new Set()) }
   const play = (id: string, ids?: string[]) => {
     if (ids) setQueue(ids)
     setSelection((previous) => ({ id, request: previous.request + 1 }))
@@ -224,6 +246,47 @@ export default function App() {
     ;[ids[index], ids[target]] = [ids[target], ids[index]]
     setLibrary((value) => ({ ...value, playlists: value.playlists.map((item) => item.id === selectedPlaylist.id ? { ...item, trackIds: ids } : item) }))
   }
+  // Bulk actions on the selected tracks, kept in the order they are shown.
+  const selectedIds = visibleTracks.filter((track) => selected.has(track.id)).map((track) => track.id)
+  const selectedTracks = selectedIds.flatMap((id) => trackMap.get(id) ? [trackMap.get(id)!] : [])
+  const addToPlaylist = (id: string) => {
+    const target = playlists.find((item) => item.id === id)
+    if (!target) return
+    const added = selectedIds.filter((trackId) => !target.trackIds.includes(trackId))
+    setLibrary((value) => ({ ...value, playlists: value.playlists.map((item) => item.id === id ? { ...item, trackIds: [...item.trackIds, ...added] } : item) }))
+    notify(added.length ? `${added.length} música(s) adicionada(s) a “${target.name}”.` : `As músicas selecionadas já estão em “${target.name}”.`)
+    setSelected(new Set())
+  }
+  const likeSelected = () => {
+    const allLiked = selectedIds.every((id) => likedIds.has(id))
+    setLibrary((value) => ({ ...value, liked: allLiked ? value.liked.filter((id) => !selected.has(id)) : [...new Set([...value.liked, ...selectedIds])] }))
+  }
+  const saveTagEdit = (edit: TagEdit) => {
+    setLibrary((value) => {
+      const next = { ...value.tagEdits }
+      for (const id of selectedIds) next[id] = { ...next[id], ...edit }
+      return { ...value, tagEdits: next }
+    })
+    setTagEditorOpen(false)
+    setSelected(new Set())
+    // Opening the album right away confirms the grouping worked.
+    const first = selectedTracks[0] && applyTagEdit(selectedTracks[0], edit)
+    if (edit.album && first) { setView("albums"); setFolder(null); setPlaylistId(""); setSearch(""); setAlbumId(albumKey(first)) }
+    notify(edit.album ? `Álbum “${edit.album}” atualizado com ${selectedIds.length} faixa(s).` : `Informações de ${selectedIds.length} faixa(s) atualizadas.`)
+  }
+  const restoreTags = () => {
+    setLibrary((value) => ({ ...value, tagEdits: Object.fromEntries(Object.entries(value.tagEdits).filter(([id]) => !selected.has(id))) }))
+    setTagEditorOpen(false)
+    setSelected(new Set())
+    notify("Tags originais dos arquivos restauradas.")
+  }
+  useEffect(() => {
+    if (!selected.size) return
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape" && !document.querySelector("[data-slot='sheet-content']")) setSelected(new Set()) }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [selected.size])
+
   const exportPlaylist = async () => {
     if (!window.desktop || !selectedPlaylist) return
     setBusy(true)
@@ -236,7 +299,11 @@ export default function App() {
   const visiblePlaylists = playlists.filter((item) => item.name.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
   const showFolders = view === "folders" && folder === null
   const showPlaylists = view === "playlists" && !selectedPlaylist
-  const title = selectedPlaylist && view === "playlists" ? selectedPlaylist.name : folder !== null && view === "folders" ? folderName(folder) : navigation.find((item) => item.id === view)!.label
+  const showAlbums = view === "albums" && !selectedAlbum
+  const visibleAlbums = albums.filter((album) => normalize(`${album.title} ${album.artist}`).includes(normalize(query.trim())))
+  const showCollection = showFolders || showPlaylists || showAlbums
+  const title = selectedPlaylist && view === "playlists" ? selectedPlaylist.name : selectedAlbum ? selectedAlbum.title : folder !== null && view === "folders" ? folderName(folder) : navigation.find((item) => item.id === view)!.label
+  const albumDuration = selectedAlbum ? Math.round(visibleTracks.reduce((total, track) => total + (track.duration ?? 0), 0) / 60) : 0
 
   return <div className="app-shell">
     <input ref={filesInput} type="file" accept=".mp3,.wav,.flac,.ogg,.opus,.m4a,.aac,.webm" multiple hidden onChange={(event) => { importBrowserFiles(event.target.files); event.target.value = "" }} />
@@ -258,25 +325,29 @@ export default function App() {
         {!window.desktop ? <p className="browser-notice">No navegador, os arquivos ficam disponíveis apenas nesta sessão. No desktop, sua biblioteca e playlists ficam salvas.</p> : null}
         {notice ? <div className="notice" role="status"><span>{notice}</span><Button variant="ghost" size="icon-xs" aria-label="Fechar aviso" onClick={() => setNotice("")}><X /></Button></div> : null}
         {view === "discover" ? <Discover settings={discover} progress={torrentProgress} saveFolder={library.saveFolder} onChooseSaveFolder={() => void chooseSaveFolder()} onSaveSettings={(next) => setLibrary((value) => ({ ...value, discover: next }))} onPlay={(tracks, index) => { registerDiscoverTracks(tracks); play(tracks[index].id, tracks.map((track) => track.id)) }} notify={notify} /> : <>
-        <div className="page-heading"><div><p className="eyebrow">{selectedPlaylist ? "PLAYLIST LOCAL" : "DO SEU COMPUTADOR"}</p><h1>{title}</h1><p className="page-subtitle">{busy ? "Lendo arquivos…" : !loaded ? "Carregando biblioteca…" : showFolders ? `${folders.length} pasta(s) com músicas` : showPlaylists ? `${playlists.length} playlist(s) salvas` : `${visibleTracks.length} música(s)`}</p></div>
-          <div className="page-actions">{showPlaylists ? <><Button disabled={!loaded} onClick={() => openEditor()}><Plus />Nova playlist</Button>{window.desktop ? <Button variant="outline" disabled={busy || !loaded} onClick={() => void importLocal("playlist")}><Upload />Importar M3U</Button> : null}</> : !showFolders ? <><Button disabled={!visibleTracks.length} onClick={() => play(visibleTracks[0].id, visibleTracks.map((track) => track.id))}><Play fill="currentColor" />Reproduzir</Button>{selectedPlaylist ? <><Button variant="outline" onClick={() => openEditor(selectedPlaylist)}><Pencil />Editar</Button>{window.desktop ? <Button variant="outline" disabled={busy} onClick={() => void exportPlaylist()}><Upload />Exportar</Button> : null}</> : <Button variant="outline" disabled={!visibleTracks.length} onClick={() => openEditor(undefined, visibleTracks.map((track) => track.id))}><Plus />Salvar playlist</Button>}</> : null}</div>
+        <div className="page-heading">{selectedAlbum ? <Cover cover={selectedAlbum.cover} size="large" album /> : null}<div><p className="eyebrow">{selectedPlaylist ? "PLAYLIST LOCAL" : selectedAlbum ? "ÁLBUM" : "DO SEU COMPUTADOR"}</p><h1>{title}</h1><p className="page-subtitle">{busy ? "Lendo arquivos…" : !loaded ? "Carregando biblioteca…" : showFolders ? `${folders.length} pasta(s) com músicas` : showPlaylists ? `${playlists.length} playlist(s) salvas` : showAlbums ? `${albums.length} álbum(ns)` : selectedAlbum ? [selectedAlbum.artist, selectedAlbum.year, `${visibleTracks.length} música(s)`, albumDuration ? `${albumDuration} min` : ""].filter(Boolean).join(" · ") : `${visibleTracks.length} música(s)`}</p></div>
+          <div className="page-actions">{showPlaylists ? <><Button disabled={!loaded} onClick={() => openEditor()}><Plus />Nova playlist</Button>{window.desktop ? <Button variant="outline" disabled={busy || !loaded} onClick={() => void importLocal("playlist")}><Upload />Importar M3U</Button> : null}</> : !showCollection ? <><Button disabled={!visibleTracks.length} onClick={() => play(visibleTracks[0].id, visibleTracks.map((track) => track.id))}><Play fill="currentColor" />Reproduzir</Button>{selectedPlaylist ? <><Button variant="outline" onClick={() => openEditor(selectedPlaylist)}><Pencil />Editar</Button>{window.desktop ? <Button variant="outline" disabled={busy} onClick={() => void exportPlaylist()}><Upload />Exportar</Button> : null}</> : <Button variant="outline" disabled={!visibleTracks.length} onClick={() => openEditor(undefined, visibleTracks.map((track) => track.id))}><Plus />Salvar playlist</Button>}</> : null}</div>
         </div>
-        {showFolders ? <div className="collection-grid">{visibleFolders.map(([name, count]) => <button className="collection-card" key={name} onClick={() => { setFolder(name); setSearch("") }}><Folder size={30} /><strong>{folderName(name)}</strong><span title={name}>{name || "Arquivos avulsos"}</span><small>{count} música(s)</small></button>)}</div> : showPlaylists ? <div className="collection-grid">{visiblePlaylists.map((playlist) => <button className="collection-card" key={playlist.id} onClick={() => { setPlaylistId(playlist.id); setSearch("") }}><ListMusic size={30} /><strong>{playlist.name}</strong><small>{playlist.trackIds.length} música(s)</small></button>)}</div> : visibleTracks.length ? <div className="track-table" role="table" aria-label="Músicas">
-          <div className="track-table-head" role="row"><span role="columnheader">#</span><span role="columnheader">Música</span><span role="columnheader">Pasta</span><span role="columnheader">Formato</span><span role="columnheader" className="sr-only">Ações</span></div>
-          {visibleTracks.map((track, index) => <div role="row" key={track.id} className={`track-row ${selection.id === track.id ? "current" : ""}`}>
-            <div role="cell"><Button variant="ghost" size="icon" aria-label={`Reproduzir ${track.title}`} onClick={() => play(track.id, visibleTracks.map((item) => item.id))}><span className="track-number">{String(index + 1).padStart(2, "0")}</span><Play className="row-play" size={15} /></Button></div>
-            <div role="cell" className="track-name"><div className="cover-placeholder small"><Music2 size={18} /></div><button className="track-title" title={track.path} onClick={() => play(track.id, visibleTracks.map((item) => item.id))}>{track.title}</button></div>
-            <span role="cell" className="track-folder" title={track.folder}>{folderName(track.folder)}</span><span role="cell" className="track-format">{track.format}</span>
-            <div role="cell" className="track-actions">{selectedPlaylist ? <><Button variant="ghost" size="icon-xs" disabled={selectedPlaylist.trackIds.indexOf(track.id) === 0} aria-label={`Mover ${track.title} para cima`} onClick={() => reorder(track.id, -1)}><ArrowUp /></Button><Button variant="ghost" size="icon-xs" disabled={selectedPlaylist.trackIds.indexOf(track.id) === selectedPlaylist.trackIds.length - 1} aria-label={`Mover ${track.title} para baixo`} onClick={() => reorder(track.id, 1)}><ArrowDown /></Button></> : null}<Button variant="ghost" size="icon" aria-label={`${likedIds.has(track.id) ? "Desfavoritar" : "Favoritar"} ${track.title}`} aria-pressed={likedIds.has(track.id)} className={likedIds.has(track.id) ? "accent" : ""} onClick={() => toggleLike(track.id)}><Heart size={16} fill={likedIds.has(track.id) ? "currentColor" : "none"} /></Button></div>
-          </div>)}
+        {view === "library" && tracks.length ? <LibraryFilters tracks={tracks} filters={filters} onChange={setFilters} /> : null}
+        {showFolders ? <div className="collection-grid">{visibleFolders.map(([name, count]) => <button className="collection-card" key={name} onClick={() => { setFolder(name); setSearch("") }}><Folder size={30} /><strong>{folderName(name)}</strong><span title={name}>{name || "Arquivos avulsos"}</span><small>{count} música(s)</small></button>)}</div> : showPlaylists ? <div className="collection-grid">{visiblePlaylists.map((playlist) => <button className="collection-card" key={playlist.id} onClick={() => { setPlaylistId(playlist.id); setSearch("") }}><ListMusic size={30} /><strong>{playlist.name}</strong><small>{playlist.trackIds.length} música(s)</small></button>)}</div> : showAlbums ? <div className="collection-grid album-grid">{visibleAlbums.map((album) => <button className="collection-card album-card" key={album.key} onClick={() => { setAlbumId(album.key); setSearch(""); setSelected(new Set()) }}><Cover cover={album.cover} size="large" album /><strong title={album.title}>{album.title}</strong><span>{album.artist || "Artista desconhecido"}</span><small>{[album.year, `${album.trackIds.length} música(s)`].filter(Boolean).join(" · ")}</small></button>)}</div> : visibleTracks.length ? <TrackTable tracks={visibleTracks} currentId={selection.id} likedIds={likedIds} selected={selected} onSelectionChange={setSelected} onPlay={(id) => play(id, visibleTracks.map((item) => item.id))} onToggleLike={toggleLike} albumNumbering={!!selectedAlbum} extraActions={selectedPlaylist ? (track) => <><Button variant="ghost" size="icon-xs" disabled={selectedPlaylist.trackIds.indexOf(track.id) === 0} aria-label={`Mover ${track.title} para cima`} onClick={() => reorder(track.id, -1)}><ArrowUp /></Button><Button variant="ghost" size="icon-xs" disabled={selectedPlaylist.trackIds.indexOf(track.id) === selectedPlaylist.trackIds.length - 1} aria-label={`Mover ${track.title} para baixo`} onClick={() => reorder(track.id, 1)}><ArrowDown /></Button></> : undefined} /> : null}
+        {selectedIds.length ? <div className="selection-bar" role="toolbar" aria-label="Ações para as músicas selecionadas">
+          <strong>{selectedIds.length} selecionada(s)</strong>
+          <Button size="sm" onClick={() => play(selectedIds[0], selectedIds)}><Play fill="currentColor" />Tocar</Button>
+          <Button size="sm" variant="outline" onClick={() => { setQueue((ids) => [...ids, ...selectedIds.filter((id) => !ids.includes(id))]); notify(`${selectedIds.length} música(s) na fila.`) }}><ListPlus />Adicionar à fila</Button>
+          <Button size="sm" variant="outline" onClick={() => { openEditor(undefined, selectedIds); setSelected(new Set()) }}><Plus />Criar playlist</Button>
+          {playlists.length ? <select className="selection-select" aria-label="Adicionar à playlist" value="" onChange={(event) => addToPlaylist(event.target.value)}><option value="" disabled>Adicionar à playlist…</option>{playlists.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select> : null}
+          <Button size="sm" variant="outline" onClick={likeSelected}><Heart fill={selectedIds.every((id) => likedIds.has(id)) ? "currentColor" : "none"} />{selectedIds.every((id) => likedIds.has(id)) ? "Desfavoritar" : "Favoritar"}</Button>
+          {selectedTracks.some((track) => track.source !== "torrent") ? <Button size="sm" variant="outline" onClick={() => setTagEditorOpen(true)}><Tags />Editar álbum e tags</Button> : null}
+          <Button size="icon-sm" variant="ghost" aria-label="Limpar seleção" onClick={() => setSelected(new Set())}><X /></Button>
         </div> : null}
-        {((showFolders && !visibleFolders.length) || (showPlaylists && !visiblePlaylists.length) || (!showFolders && !showPlaylists && !visibleTracks.length)) ? <div className="empty-state"><div className="empty-icon">{view === "liked" ? <Heart /> : view === "playlists" ? <ListMusic /> : <Music2 />}</div><h2>{query ? "Nenhum resultado encontrado" : view === "liked" ? "Guarde suas favoritas aqui" : view === "recent" ? "Sua próxima música começa aqui" : showPlaylists ? "Uma playlist para cada momento" : selectedPlaylist ? "Essa playlist ainda está vazia" : "Sua música, no seu espaço"}</h2><p>{query ? "Tente outro nome de música ou pasta." : view === "liked" ? "Use o coração ao lado de uma música para adicioná-la." : view === "recent" ? "As músicas que você ouvir aparecerão aqui." : showPlaylists ? "Crie uma seleção ou importe uma playlist local no aplicativo desktop." : selectedPlaylist ? "Clique em Editar para escolher músicas da biblioteca." : "Adicione uma pasta ou abra seus arquivos para começar. Seus arquivos continuam onde estão."}</p>{view === "library" && !query ? <Button disabled={busy || !loaded} onClick={() => void importLocal("folder")}><FolderPlus />Adicionar sua primeira pasta</Button> : null}</div> : null}
+        {((showFolders && !visibleFolders.length) || (showPlaylists && !visiblePlaylists.length) || (showAlbums && !visibleAlbums.length) || (!showCollection && !visibleTracks.length)) ? <div className="empty-state"><div className="empty-icon">{view === "liked" ? <Heart /> : view === "playlists" ? <ListMusic /> : view === "albums" ? <Disc3 /> : <Music2 />}</div><h2>{query ? "Nenhum resultado encontrado" : view === "library" && tracks.length ? "Nenhuma música com esses filtros" : showAlbums ? "Nenhum álbum ainda" : view === "liked" ? "Guarde suas favoritas aqui" : view === "recent" ? "Sua próxima música começa aqui" : showPlaylists ? "Uma playlist para cada momento" : selectedPlaylist ? "Essa playlist ainda está vazia" : "Sua música, no seu espaço"}</h2><p>{query ? "Tente outro nome de música ou pasta." : view === "library" && tracks.length ? "Ajuste ou limpe os filtros para ver mais músicas." : showAlbums ? "Os álbuns vêm das tags dos arquivos. Selecione faixas na Biblioteca e use “Editar álbum e tags” para agrupá-las." : view === "liked" ? "Use o coração ao lado de uma música para adicioná-la." : view === "recent" ? "As músicas que você ouvir aparecerão aqui." : showPlaylists ? "Crie uma seleção ou importe uma playlist local no aplicativo desktop." : selectedPlaylist ? "Clique em Editar para escolher músicas da biblioteca." : "Adicione uma pasta ou abra seus arquivos para começar. Seus arquivos continuam onde estão."}</p>{view === "library" && !query && !tracks.length ? <Button disabled={busy || !loaded} onClick={() => void importLocal("folder")}><FolderPlus />Adicionar sua primeira pasta</Button> : null}</div> : null}
         </>}
       </section>
     </main>
     <Player track={trackMap.get(selection.id)} request={selection.request} liked={likedIds.has(selection.id)} volume={volume} mode={mode} torrentStatus={(() => { const track = trackMap.get(selection.id); return track?.source === "torrent" && track.infoHash ? torrentProgress.get(track.infoHash) : undefined })()} onVolume={(value) => setLibrary((previous) => ({ ...previous, volume: value }))} onMode={setMode} onLike={() => toggleLike(selection.id)} onNext={next} onPrevious={() => { if (queue.length) play(queue[(queue.indexOf(selection.id) - 1 + queue.length) % queue.length]) }} onQueue={() => setQueueOpen(true)} onStarted={started} onError={notify} onSave={() => void saveCurrentTorrentTrack()} />
     <Sheet open={queueOpen} onOpenChange={setQueueOpen}><SheetContent className="local-sheet"><SheetHeader><SheetTitle>Fila de reprodução</SheetTitle><SheetDescription>{queue.length} música(s) · independente das playlists salvas</SheetDescription></SheetHeader><div className="sheet-actions"><Button variant="outline" disabled={!queue.length} onClick={() => { setQueueOpen(false); openEditor(undefined, queue) }}><Plus />Salvar playlist</Button><Button variant="ghost" disabled={!queue.length} onClick={() => { setQueue([]); setSelection((value) => ({ id: "", request: value.request + 1 })) }}><Trash2 />Limpar fila</Button></div><div className="sheet-list">{fromIds(queue).map((track) => <div key={track.id} className="queue-row"><button className={selection.id === track.id ? "accent" : ""} onClick={() => play(track.id)}><Music2 size={16} /><span>{track.title}</span></button><Button variant="ghost" size="icon-xs" aria-label={`Remover ${track.title} da fila`} onClick={() => { setQueue((ids) => ids.filter((id) => id !== track.id)); if (selection.id === track.id) setSelection((value) => ({ id: "", request: value.request + 1 })) }}><X /></Button></div>)}{!queue.length ? <p className="muted">Reproduza uma música para começar uma fila.</p> : null}</div></SheetContent></Sheet>
     <Sheet open={youtubeOpen} onOpenChange={setYoutubeOpen}><SheetContent className="local-sheet"><SheetHeader><SheetTitle>Adicionar do YouTube</SheetTitle><SheetDescription>Cole links de vídeos ou playlists do YouTube, um por linha. O yt-dlp lê os metadados; nenhum vídeo é baixado e o áudio é transmitido na hora da reprodução.</SheetDescription></SheetHeader>{youtubeOpen ? <form className="playlist-form" onSubmit={(event) => { event.preventDefault(); void addYoutube() }}><label>Nome da playlist (opcional)<Input maxLength={120} value={youtubeName} onChange={(event) => setYoutubeName(event.target.value)} placeholder="Usado quando o envio tem vários vídeos" /></label><label>Links<textarea required rows={8} className="youtube-links" aria-label="Links do YouTube" value={youtubeText} onChange={(event) => setYoutubeText(event.target.value)} placeholder={"https://www.youtube.com/watch?v=…\nhttps://youtu.be/…\nhttps://www.youtube.com/playlist?list=…"} /></label><p className="muted">Requer o yt-dlp instalado no sistema.</p><div className="sheet-actions"><Button type="submit" disabled={busy || !youtubeText.trim()}>Adicionar</Button><Button type="button" variant="ghost" onClick={() => setYoutubeOpen(false)}>Cancelar</Button></div></form> : null}</SheetContent></Sheet>
-    <Sheet open={!!editor} onOpenChange={(open) => { if (!open) setEditor(null) }}><SheetContent className="local-sheet"><SheetHeader><SheetTitle>{playlists.some((item) => item.id === editor?.id) ? "Editar playlist" : "Nova playlist"}</SheetTitle><SheetDescription>Escolha músicas da sua biblioteca. Nenhum arquivo será copiado.</SheetDescription></SheetHeader>{editor ? <form className="playlist-form" onSubmit={(event) => { event.preventDefault(); savePlaylist() }}><label>Nome<Input autoFocus required maxLength={120} value={editor.name} onChange={(event) => setEditor({ ...editor, name: event.target.value })} placeholder="Minha playlist" /></label><Input aria-label="Filtrar músicas da playlist" placeholder="Filtrar músicas…" value={editorSearch} onChange={(event) => setEditorSearch(event.target.value)} /><span className="muted">{editor.trackIds.length} selecionada(s)</span><div className="playlist-choices">{filterTracks(library.tracks, editorSearch).map((track) => <label key={track.id}><input type="checkbox" checked={editor.trackIds.includes(track.id)} onChange={(event) => setEditor({ ...editor, trackIds: event.target.checked ? [...editor.trackIds, track.id] : editor.trackIds.filter((id) => id !== track.id) })} /><span>{track.title}</span></label>)}{!library.tracks.length ? <p className="muted">Adicione músicas à biblioteca para preencher sua playlist.</p> : null}</div><div className="sheet-actions"><Button type="submit" disabled={!editor.name.trim()}>Salvar playlist</Button><Button type="button" variant="ghost" onClick={() => setEditor(null)}>Cancelar</Button></div>{playlists.some((item) => item.id === editor.id) ? <Button type="button" variant="destructive" onClick={() => { setLibrary((value) => ({ ...value, playlists: value.playlists.filter((item) => item.id !== editor.id) })); setEditor(null); setPlaylistId(""); notify("Playlist removida. Os arquivos de música foram mantidos.") }}><Trash2 />Excluir playlist</Button> : null}</form> : null}</SheetContent></Sheet>
+    <Sheet open={!!editor} onOpenChange={(open) => { if (!open) setEditor(null) }}><SheetContent className="local-sheet"><SheetHeader><SheetTitle>{playlists.some((item) => item.id === editor?.id) ? "Editar playlist" : "Nova playlist"}</SheetTitle><SheetDescription>Escolha músicas da sua biblioteca. Nenhum arquivo será copiado.</SheetDescription></SheetHeader>{editor ? <form className="playlist-form" onSubmit={(event) => { event.preventDefault(); savePlaylist() }}><label>Nome<Input autoFocus required maxLength={120} value={editor.name} onChange={(event) => setEditor({ ...editor, name: event.target.value })} placeholder="Minha playlist" /></label><Input aria-label="Filtrar músicas da playlist" placeholder="Filtrar músicas…" value={editorSearch} onChange={(event) => setEditorSearch(event.target.value)} /><span className="muted">{editor.trackIds.length} selecionada(s)</span><div className="playlist-choices">{filterTracks(tracks, editorSearch).map((track) => <label key={track.id}><input type="checkbox" checked={editor.trackIds.includes(track.id)} onChange={(event) => setEditor({ ...editor, trackIds: event.target.checked ? [...editor.trackIds, track.id] : editor.trackIds.filter((id) => id !== track.id) })} /><span>{track.title}</span></label>)}{!library.tracks.length ? <p className="muted">Adicione músicas à biblioteca para preencher sua playlist.</p> : null}</div><div className="sheet-actions"><Button type="submit" disabled={!editor.name.trim()}>Salvar playlist</Button><Button type="button" variant="ghost" onClick={() => setEditor(null)}>Cancelar</Button></div>{playlists.some((item) => item.id === editor.id) ? <Button type="button" variant="destructive" onClick={() => { setLibrary((value) => ({ ...value, playlists: value.playlists.filter((item) => item.id !== editor.id) })); setEditor(null); setPlaylistId(""); notify("Playlist removida. Os arquivos de música foram mantidos.") }}><Trash2 />Excluir playlist</Button> : null}</form> : null}</SheetContent></Sheet>
+    {tagEditorOpen && selectedTracks.length ? <TagEditor tracks={selectedTracks} hasEdits={selectedIds.some((id) => tagEdits[id])} onSave={saveTagEdit} onRestore={restoreTags} onClose={() => setTagEditorOpen(false)} /> : null}
   </div>
 }
