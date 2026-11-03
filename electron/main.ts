@@ -11,6 +11,7 @@ import type { YouTubeVideo } from "./youtube.ts"
 import { searchDiscover, testDiscover, cleanDiscoverSettings, isIndexerUrl } from "./discover.ts"
 import { TorrentEngine } from "./torrent.ts"
 import { coverResponse } from "./metadata.ts"
+import { LiveStreams, ffmpegAvailable, FFMPEG_MISSING } from "./live.ts"
 
 // This file is bundled to dist-electron/main.cjs, next to preload.cjs.
 const isDev = !app.isPackaged
@@ -135,7 +136,31 @@ handle("library:save-folder", async (win) => {
 // Googlevideo stream URLs expire after a few hours; cache only within that window.
 // Each entry keeps the URL and whether the video was live when resolved.
 const streamCache = new Map<string, YouTubeResolved & { expires: number }>()
+const resolving = new Map<string, Promise<YouTubeResolved>>()
 const STREAM_CACHE_TTL = 4 * 60 * 60 * 1000
+const lives = new LiveStreams()
+let ffmpegCheck: Promise<boolean> | undefined
+
+// Shared by the resolve IPC and the local-music://live/ route. yt-dlp can
+// take seconds, so this runs outside the library queue, and concurrent calls
+// for one track share one run. `fresh` skips the cache, e.g. after a live's
+// manifest expired.
+function resolveYouTube(id: string, fresh = false): Promise<YouTubeResolved> {
+  const cached = streamCache.get(id)
+  if (!fresh && cached && cached.expires > Date.now()) return Promise.resolve({ url: cached.url, isLive: cached.isLive })
+  const pending = resolving.get(id)
+  if (pending) return pending
+  const job = (async () => {
+    const track = library.snapshot().tracks.find((item) => item.id === id && item.source === "youtube")
+    if (!track) throw new Error("Esta música do YouTube não está mais na biblioteca.")
+    const { url, isLive } = await resolveStream(track.path)
+    streamCache.set(id, { url, isLive, expires: Date.now() + STREAM_CACHE_TTL })
+    void enqueue(async () => { if (await library.setLive(id, isLive)) broadcast("library:tracks", library.snapshot().tracks) }).catch(() => {})
+    return { url, isLive }
+  })().finally(() => resolving.delete(id))
+  resolving.set(id, job)
+  return job
+}
 
 handle("youtube:add", async (_win, text, name) => {
   const { targets } = parseYouTubeLinks(text)
@@ -152,15 +177,14 @@ handle("youtube:add", async (_win, text, name) => {
   return library.addVideos(videos, playlistTitle || String(name ?? "").trim().slice(0, 120))
 })
 
-handle("youtube:resolve", async (_win, id) => {
-  const track = library.snapshot().tracks.find((item) => item.id === id && item.source === "youtube")
-  if (!track) throw new Error("Esta música do YouTube não está mais na biblioteca.")
-  const cached = streamCache.get(id)
-  if (cached && cached.expires > Date.now()) return { url: cached.url, isLive: cached.isLive }
-  const { url, isLive } = await resolveStream(track.path)
-  streamCache.set(id, { url, isLive, expires: Date.now() + STREAM_CACHE_TTL })
-  if (await library.setLive(id, isLive)) broadcast("library:tracks", library.snapshot().tracks)
-  return { url, isLive }
+handleConcurrent("youtube:resolve", async (_win, id) => {
+  const resolved = await resolveYouTube(id)
+  // Lives play through ffmpeg; say so before the player asks for audio.
+  if (resolved.isLive && !await (ffmpegCheck ??= ffmpegAvailable())) {
+    ffmpegCheck = undefined
+    throw new Error(FFMPEG_MISSING)
+  }
+  return resolved
 })
 
 // Discover: search the user-configured Prowlarr or Torznab endpoint.
@@ -212,6 +236,12 @@ app.whenReady().then(() => {
       await ready
       const url = new URL(request.url)
       if (url.hostname === "cover") return coverResponse(url, coversDir)
+      if (url.hostname === "live") {
+        const id = url.pathname.slice(1)
+        if (!/^[a-f0-9]{64}$/.test(id) || request.method !== "GET") return new Response(null, { status: 403 })
+        if (library.tracks.get(id)?.source !== "youtube") return new Response(null, { status: 404 })
+        return lives.open((fresh) => resolveYouTube(id, fresh), request.signal)
+      }
       return audioResponse(request, library, engine)
     } catch { return new Response(null, { status: 404 }) }
   })
@@ -225,6 +255,7 @@ app.on("before-quit", (event) => {
   event.preventDefault()
   // Destroying the engine cancels pending saves, which may still queue
   // library imports for files already copied; drain the queue once more.
+  lives.stopAll()
   operations.catch(() => {}).then(() => engine?.destroy()).catch(() => {})
     .then(() => operations).catch(() => {}).then(() => library?.writes).catch(() => {})
     .finally(() => { quitting = true; app.quit() })

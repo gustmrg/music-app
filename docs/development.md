@@ -32,6 +32,7 @@ electron/
   youtube.ts         YouTube links, metadata, and stream resolution via yt-dlp
   discover.ts        Prowlarr and Torznab search
   torrent.ts         torrent streaming and saving with webtorrent
+  live.ts            YouTube lives remuxed to AAC by ffmpeg (local-music://live/)
   audio.ts           audio streaming with byte-range support
   webtorrent.d.ts    types for the parts of webtorrent the app uses
   *.test.ts          tests, run directly by Node
