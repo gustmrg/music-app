@@ -105,6 +105,7 @@ handle("library:save-folder", async (win) => {
 })
 
 // Googlevideo stream URLs expire after a few hours; cache only within that window.
+// Each entry keeps the URL and whether the video was live when resolved.
 const streamCache = new Map()
 const STREAM_CACHE_TTL = 4 * 60 * 60 * 1000
 
@@ -127,10 +128,11 @@ handle("youtube:resolve", async (_win, id) => {
   const track = library.snapshot().tracks.find((item) => item.id === id && item.source === "youtube")
   if (!track) throw new Error("Esta música do YouTube não está mais na biblioteca.")
   const cached = streamCache.get(id)
-  if (cached && cached.expires > Date.now()) return { url: cached.url }
-  const url = await resolveStream(track.path)
-  streamCache.set(id, { url, expires: Date.now() + STREAM_CACHE_TTL })
-  return { url }
+  if (cached && cached.expires > Date.now()) return { url: cached.url, isLive: cached.isLive }
+  const { url, isLive } = await resolveStream(track.path)
+  streamCache.set(id, { url, isLive, expires: Date.now() + STREAM_CACHE_TTL })
+  if (await library.setLive(id, isLive)) broadcast("library:tracks", library.snapshot().tracks)
+  return { url, isLive }
 })
 
 // Discover: search the user-configured Prowlarr or Torznab endpoint.

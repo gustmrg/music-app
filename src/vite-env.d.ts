@@ -13,7 +13,7 @@ interface Window {
     exportPlaylist: (ids: string[]) => Promise<boolean>
     savePreferences: (preferences: import("./library").Preferences) => Promise<void>
     addYoutube: (text: string, name?: string) => Promise<import("./library").ImportResult>
-    resolveYoutube: (id: string) => Promise<{ url: string }>
+    resolveYoutube: (id: string) => Promise<{ url: string; isLive: boolean }>
     searchDiscover: (query: string) => Promise<{ results: import("./library").DiscoverResult[] }>
     testDiscover: (settings: import("./library").DiscoverSettings) => Promise<{ ok: true; hint: string }>
     expandTorrent: (source: string) => Promise<import("./library").TorrentExpansion>

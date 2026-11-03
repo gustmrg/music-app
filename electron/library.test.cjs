@@ -143,3 +143,40 @@ test("keeps the save folder out of renderer preferences and falls back to the de
   const stored = JSON.parse(await fs.readFile(library.storeFile, "utf8"))
   assert.equal(stored.saveFolder, chosen)
 })
+
+test("stores whether YouTube tracks are live and loads older libraries as not live", async (t) => {
+  const { library, root } = await fixture(t)
+  const videos = [
+    { url: "https://www.youtube.com/watch?v=0sfDth4lMLc", title: "lofi radio", channel: "Lofi Girl", isLive: true },
+    { url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", title: "Faixa", channel: "Canal", isLive: false },
+  ]
+  const { imported } = await library.addVideos(videos)
+  const [live, regular] = imported.map((id) => library.tracks.get(id))
+  assert.equal(live.isLive, true)
+  assert.equal(regular.isLive, false)
+
+  // A video that starts streaming after import is updated and persisted once.
+  assert.equal(await library.setLive(regular.id, true), true)
+  assert.equal(await library.setLive(regular.id, true), false)
+  assert.equal(await library.setLive("missing", true), false)
+  const reloaded = new LocalLibrary(library.storeFile)
+  await reloaded.load()
+  assert.equal(reloaded.tracks.get(live.id).isLive, true)
+  assert.equal(reloaded.tracks.get(regular.id).isLive, true)
+
+  // Libraries saved before live detection have no isLive field.
+  const legacyFile = path.join(root, "legacy", "library.json")
+  await fs.mkdir(path.dirname(legacyFile), { recursive: true })
+  await fs.writeFile(legacyFile, JSON.stringify({ version: 1, tracks: [{ id: "x", path: videos[0].url, title: "lofi radio", folder: "Lofi Girl", format: "YouTube", source: "youtube" }] }))
+  const legacy = new LocalLibrary(legacyFile)
+  const { tracks } = await legacy.load()
+  assert.equal(tracks.length, 1)
+  assert.equal(tracks[0].isLive, false)
+})
+
+test("only YouTube tracks can be marked live", async (t) => {
+  const { library, music } = await fixture(t)
+  const { imported } = await library.addFolder(music)
+  assert.equal(await library.setLive(imported[0], true), false)
+  assert.equal(library.tracks.get(imported[0]).isLive, undefined)
+})
