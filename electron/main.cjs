@@ -6,6 +6,7 @@ const { audioResponse } = require("./audio.cjs")
 const { parseYouTubeLinks, fetchVideos, resolveStream, MAX_PLAYLIST_ENTRIES } = require("./youtube.cjs")
 const { searchDiscover, testDiscover, cleanDiscoverSettings, isIndexerUrl } = require("./discover.cjs")
 const { TorrentEngine } = require("./torrent.cjs")
+const { coverResponse } = require("./metadata.cjs")
 
 const isDev = !app.isPackaged
 const entryURL = isDev ? "http://127.0.0.1:5173/" : pathToFileURL(path.join(__dirname, "../dist/index.html")).href
@@ -156,10 +157,14 @@ function defaultSaveFolder() {
 }
 
 app.whenReady().then(() => {
-  library = new LocalLibrary(path.join(app.getPath("userData"), "local-library.json"), { defaultSaveFolder: defaultSaveFolder() })
+  const coversDir = path.join(app.getPath("userData"), "covers")
+  library = new LocalLibrary(path.join(app.getPath("userData"), "local-library.json"), { defaultSaveFolder: defaultSaveFolder(), coversDir })
   ready = library.load()
   // Keep a corrupt library intact and report the failure through the UI.
   ready.catch((error) => console.error("Unable to load local library:", error.message))
+  // Tracks imported before tag support get their tags in the background.
+  ready.then(() => library.scanPending((tracks) => broadcast("library:tracks", tracks)))
+    .catch((error) => console.error("Unable to read track tags:", error.message))
   // Download links are fetched only from the configured indexer's origin.
   engine = new TorrentEngine({ cachePath: path.join(app.getPath("userData"), "torrent-cache"), allowUrl: (url) => isIndexerUrl(library.preferences.discover, url) })
   engine.onProgress = (snapshot) => broadcast("torrent:progress", snapshot)
@@ -175,6 +180,8 @@ app.whenReady().then(() => {
   protocol.handle("local-music", async (request) => {
     try {
       await ready
+      const url = new URL(request.url)
+      if (url.hostname === "cover") return coverResponse(url, coversDir)
       return audioResponse(request, library, engine)
     } catch { return new Response(null, { status: 404 }) }
   })

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react"
-import { Download, Heart, ListMusic, Music2, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, Volume2 } from "lucide-react"
-import { formatTime, type Track } from "@/library"
+import { Download, Heart, ListMusic, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, Volume2 } from "lucide-react"
+import { formatTime, trackArtist, type Track } from "@/library"
 import { Button } from "@/components/ui/button"
+import { Cover } from "@/components/Cover"
 
 export type PlayMode = "order" | "repeat" | "one" | "shuffle"
 const modes: PlayMode[] = ["order", "repeat", "one", "shuffle"]
@@ -27,7 +28,7 @@ export function Player({ track, request, liked, volume, mode, torrentStatus, onV
   const trackId = track?.id
   const subtitle = isTorrent
     ? buffering ? "Buscando na rede…" : `Torrent · ${Math.round((torrentStatus?.progress ?? 0) * 100)}% · ${torrentStatus?.peers ?? 0} par(es)`
-    : track?.format
+    : [track && trackArtist(track), track?.album].filter(Boolean).join(" · ") || track?.format
   const play = () => {
     const element = audio.current
     if (!element) return
@@ -85,7 +86,7 @@ export function Player({ track, request, liked, volume, mode, torrentStatus, onV
       onEnded={() => { if (mode === "one") { if (audio.current) audio.current.currentTime = 0; play() } else onNext(true) }}
     />
     <div className="player-track">
-      <div className="cover-placeholder"><Music2 size={23} /></div>
+      <Cover cover={track?.cover} />
       <div className="truncate"><strong>{track?.title ?? "Nenhuma música selecionada"}</strong><span>{track ? resolving ? "Buscando áudio…" : subtitle : "Abra arquivos ou adicione uma pasta"}</span></div>
       <Button variant="ghost" size="icon" disabled={!track} aria-label={liked ? "Remover dos favoritos" : "Favoritar música"} aria-pressed={liked} className={liked ? "accent" : ""} onClick={onLike}><Heart fill={liked ? "currentColor" : "none"} /></Button>
       {isTorrent && onSave ? <Button variant="ghost" size="icon" aria-label="Salvar na biblioteca" title="Salvar na biblioteca" onClick={onSave}><Download /></Button> : null}
