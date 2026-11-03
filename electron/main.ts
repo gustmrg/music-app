@@ -72,8 +72,8 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 1280, height: 820, minWidth: 820, minHeight: 600,
     show: false, frame: false, backgroundColor: "#131316", title: "Local Music",
-    // In packaged builds the icon is embedded by electron-builder; this covers dev and unpacked Linux runs.
-    icon: path.join(import.meta.dirname, "../build/icon.png"),
+    // Vite copies public/icon.png into dist; build resources are not included in app.asar.
+    icon: path.join(import.meta.dirname, isDev ? "../build/icon.png" : "../dist/icon.png"),
     webPreferences: { preload: path.join(import.meta.dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true },
   })
   win.once("ready-to-show", () => win.show())
