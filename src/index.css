@@ -43,7 +43,8 @@ input[type="range"]:disabled { cursor: default; opacity: .4; }
 .brand { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 700; height: 80px; flex-shrink: 0; letter-spacing: -.5px; }
 .brand-icon { background: #ec4141; color: #fff; border-radius: 10px; width: 32px; height: 32px; display: grid; place-items: center; }
 .sidebar-label { font-size: 10px; font-weight: 600; letter-spacing: 1.5px; color: #888894; margin: 20px 10px 12px; }
-.sidebar nav { display: flex; flex-direction: column; gap: 5px; }
+.sidebar nav, .nav-group { display: flex; flex-direction: column; gap: 5px; }
+.nav-group + .nav-group .sidebar-label { margin-top: 14px; }
 .nav-item { justify-content: flex-start; gap: 11px; height: 41px; padding: 0 12px; width: 100%; color: #aaaab5; }
 .nav-item.active { background: linear-gradient(100deg, #df4145, #bd363c); color: #fff; }
 .nav-count { margin-left: auto; opacity: .8; font-size: 11px; }
