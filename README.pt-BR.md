@@ -2,26 +2,35 @@
 
 [English](README.md) | **Português (Brasil)**
 
-Um player de música para o desktop que toca o que já é seu: os arquivos do seu computador e os links do YouTube que você colar. Sem conta, sem assinatura, sem recomendações e sem catálogo de terceiros. Sua biblioteca começa vazia e só tem o que você escolher adicionar.
+Um player de música para o desktop construído em torno da sua própria biblioteca. Adicione os arquivos de áudio que já estão no seu computador, encontre e baixe álbuns pelo seu indexador de torrents ou ouça do YouTube por streaming. Sem conta, sem assinatura e sem catálogo embutido: a biblioteca começa vazia e só tem o que você adicionar.
 
 > [!NOTE]
 > Projeto pessoal em desenvolvimento inicial (versões 0.x). Funciona, mas ainda muda bastante.
 
 ## O que ele faz
 
-- **Biblioteca local:** adicione arquivos ou pastas inteiras (MP3, FLAC, WAV, OGG, Opus, M4A, AAC e WebM) e navegue por Biblioteca, Pastas, Favoritos e Recentes.
-- **Playlists suas:** crie, reordene e exporte em M3U8; importe M3U/M3U8 que você já tem.
-- **Fila e player completos:** busca na faixa, volume, repetição, aleatório e uma fila temporária que você pode salvar como playlist.
-- **YouTube sem download:** cole links de vídeos ou playlists e ouça por streaming, resolvido no momento em que a faixa toca.
-- **Seus arquivos intactos:** nada é copiado, movido, editado nem excluído.
-- **Privado por padrão:** tudo fica em um arquivo local, sem serviço remoto nem telemetria.
+- **Biblioteca local:** adicione arquivos ou pastas inteiras (MP3, FLAC, WAV, OGG, Opus, M4A, AAC e WebM). Tags e capas embutidas são lidas na importação, para navegar por Álbuns, Biblioteca, Pastas, Favoritos e Recentes, com filtros por artista, gênero, formato e origem.
+- **Torrents pelo seu indexador:** o **Descobrir** busca no seu Prowlarr ou Jackett, toca na hora qualquer faixa de um resultado e salva na biblioteca os álbuns ou faixas que você quiser manter.
+- **YouTube:** cole links de vídeos ou playlists e ouça por streaming, resolvido pelo yt-dlp no momento em que a faixa toca.
+- **Playlists e fila:** crie playlists a partir de faixas selecionadas, reordene, importe e exporte M3U/M3U8 e salve a fila atual.
+- **Seus arquivos intactos:** arquivos importados nunca são movidos, editados nem excluídos; edições de álbum e tags ficam só no aplicativo.
+- **Sem telemetria:** a biblioteca fica em um arquivo local. O acesso à rede acontece só para o YouTube e para o indexador e os torrents que você configurar.
 
 ## Instalação
 
-Baixe o instalador da página de [Releases](https://github.com/gustmrg/music-app/releases) (macOS arm64, Windows x64 e Linux x64).
+Baixe o instalador na página de [Releases](https://github.com/gustmrg/music-app/releases) (macOS arm64, Windows x64 e Linux x64). O YouTube exige o [yt-dlp](https://github.com/yt-dlp/yt-dlp) instalado no sistema, e o Descobrir exige uma instância do Prowlarr ou do Jackett.
 
 > [!IMPORTANT]
-> Os aplicativos **não são assinados**. O macOS e o Windows mostram um aviso na primeira abertura; veja como liberar em [Installation](docs/installation.md#unsigned-app) (em inglês).
+> Os aplicativos **não são assinados**. macOS e Windows mostram um aviso na primeira abertura; veja como liberar em [Installation](docs/installation.md#unsigned-app).
+
+> [!WARNING]
+> Streams por torrent baixam **e enviam** partes dos arquivos para outras pessoas da rede, que veem o seu IP. A legalidade depende do país e do conteúdo. Você é responsável pelo que busca, toca e salva.
+
+## Próximos passos
+
+- Tocar livestreams do YouTube.
+- Salvar na biblioteca o áudio de faixas e livestreams do YouTube.
+- Monitoramento automático de pastas.
 
 ## Rodando a partir do código
 
@@ -31,18 +40,17 @@ npm run dev          # Vite + Electron
 npm test
 ```
 
-Requer Node.js 22 ou superior. As mudanças entram por pull request.
-
-## Direção
-
-O foco é ser um player local simples e rápido. Ficaram de fora da primeira versão, e são os candidatos naturais para as próximas: monitoramento automático de pastas, equalizador e letras. O escopo completo está no [SPEC](SPEC.md) (em inglês).
+Requer Node.js 22 ou mais recente. Veja [Development](docs/development.md) para a estrutura do projeto.
 
 ## Documentação
 
-A documentação está em inglês. Apenas o README tem versão em português.
-
-- [Installation](docs/installation.md): downloads, aplicativo sem assinatura, atualizações e YouTube.
-- [Usage](docs/usage.md): biblioteca, playlists, fila, YouTube e limites desta versão.
+- [Installation](docs/installation.md): downloads, app sem assinatura, atualizações e YouTube.
+- [Usage](docs/usage.md): biblioteca, álbuns, playlists, Descobrir, YouTube e limites atuais.
 - [Development](docs/development.md): scripts, estrutura do projeto e segurança.
 - [Releases](docs/releasing.md): como publicar uma versão.
-- [SPEC](SPEC.md): escopo da interface e do comportamento.
+
+A documentação está em inglês. Só o README também está em português.
+
+## Licença
+
+[MIT](LICENSE)
