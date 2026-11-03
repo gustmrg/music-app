@@ -1,16 +1,18 @@
 # Development
 
-Use Node.js 22.12 or later and npm. CI pins Node.js 24.22.1, the version bundled with Electron 45, so tests run on the same runtime as the main process. The project keeps `package-lock.json` as its only lockfile.
+Use Node.js 22.18 or later and npm: the main-process tests are TypeScript run directly by Node, which strips types natively from 22.18. CI pins Node.js 24.22.1, the version bundled with Electron 45, so tests run on the same runtime as the main process. The project keeps `package-lock.json` as its only lockfile.
 
 ```bash
 npm install
-npm run dev          # Vite + Electron
+npm run dev          # Vite + Electron; the main process rebuilds and restarts on change
 npm run dev:web      # web preview at http://127.0.0.1:5173
-npm run typecheck
-npm test             # import, playlists, YouTube, and local persistence
-npm run build
+npm run typecheck    # renderer, main process, preload, and the IPC contract
+npm test             # main-process tests (electron/*.test.ts)
+npm run build        # interface into dist/, main process and preload into dist-electron/
 npm run dist         # packaging into release/
 ```
+
+The main process and preload are TypeScript in `electron/`. `scripts/build-electron.mjs` bundles them with esbuild into `dist-electron/main.cjs` and `dist-electron/preload.cjs`, which is what Electron and the packaged app load; see [ADR 4](adr/0004-main-process-in-typescript.md). The IPC contract lives in `shared/ipc.ts`: the main process registers handlers against it, the preload exposes it as `window.desktop`, and the renderer reads it, so a mismatch fails the typecheck.
 
 The packaging targets are DMG, NSIS, AppImage, and deb. The app's internal identifier (`appId`) stays the same to keep its data directory. Changes go in through pull requests, and [CI](../.github/workflows/ci.yml) runs `typecheck`, `test`, and `build`. To publish a version, see [Releases](releasing.md).
 
@@ -23,22 +25,30 @@ The packaging targets are DMG, NSIS, AppImage, and deb. The app's internal ident
 docs/                detailed documentation
   adr/               architecture decision records
 electron/
-  main.cjs           window, native pickers, IPC, and audio protocol
-  preload.cjs        restricted API exposed to the interface
-  library.cjs        files, playlists, and JSON persistence
-  youtube.cjs        YouTube links, metadata, and stream resolution via yt-dlp
-  audio.cjs          audio streaming with byte-range support
-  library.test.cjs   tests using temporary files
-  youtube.test.cjs   tests for link parsing and metadata
+  main.ts            window, native pickers, IPC, and audio protocol
+  preload.ts         restricted API exposed to the interface
+  library.ts         files, playlists, and JSON persistence
+  metadata.ts        embedded tags and cover art
+  youtube.ts         YouTube links, metadata, and stream resolution via yt-dlp
+  discover.ts        Prowlarr and Torznab search
+  torrent.ts         torrent streaming and saving with webtorrent
+  audio.ts           audio streaming with byte-range support
+  webtorrent.d.ts    types for the parts of webtorrent the app uses
+  *.test.ts          tests, run directly by Node
+shared/
+  types.ts           data shared by the main process and the interface
+  ipc.ts             the IPC contract and the window.desktop API
+dist-electron/       bundled main.cjs and preload.cjs (generated)
 build/
   icon.png           app icon used by electron-builder
 public/
   icon.png           interface favicon
 scripts/
+  build-electron.mjs bundles electron/ into dist-electron/ (--watch for dev)
   checksums.mjs      generates the release SHA256SUMS.txt
 src/
   App.tsx            library and playlist management
-  library.ts         types and presentation helpers
+  library.ts         presentation helpers; re-exports the shared types
   components/Player.tsx  HTMLAudioElement playback
   components/ui/     the Button, Input, and Sheet components in use
   index.css          dark theme and local layout

@@ -1,14 +1,22 @@
-const { test } = require("node:test")
-const assert = require("node:assert/strict")
-const fs = require("node:fs/promises")
-const path = require("node:path")
-const os = require("node:os")
-const { LocalLibrary } = require("./library.cjs")
-const { readTags, cleanTags, cleanTagEdit, coverResponse } = require("./metadata.cjs")
+import { test } from "node:test"
+import type { TestContext } from "node:test"
+import type { Track } from "../shared/types.ts"
+import assert from "node:assert/strict"
+import fs from "node:fs/promises"
+import path from "node:path"
+import os from "node:os"
+import { LocalLibrary } from "./library.ts"
+import { readTags, cleanTags, cleanTagEdit, coverResponse } from "./metadata.ts"
 
-const fixtures = path.join(__dirname, "fixtures")
+const fixtures = path.join(import.meta.dirname, "fixtures")
 
-async function workspace(t) {
+// Asserts that a value exists and narrows its type for the rest of the test.
+function present<T>(value: T | null | undefined): T {
+  assert.ok(value != null, "expected a value")
+  return value
+}
+
+async function workspace(t: TestContext) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "local-music-tags-"))
   t.after(() => fs.rm(root, { recursive: true, force: true }))
   const music = path.join(root, "music")
@@ -28,9 +36,11 @@ test("readTags reads common fields and stores the cover by content hash", async 
   assert.equal(tags.year, 2019)
   assert.equal(tags.trackNo, 3)
   assert.equal(tags.discNo, 1)
-  assert.ok(tags.duration > 0.9 && tags.duration < 1.2)
-  assert.match(tags.cover, /^[a-f0-9]{64}\.png$/)
-  assert.ok((await fs.stat(path.join(covers, tags.cover))).size > 0)
+  const duration = present(tags.duration)
+  assert.ok(duration > 0.9 && duration < 1.2)
+  const cover = present(tags.cover)
+  assert.match(cover, /^[a-f0-9]{64}\.png$/)
+  assert.ok((await fs.stat(path.join(covers, cover))).size > 0)
   // Same image again reuses the stored file.
   assert.equal((await readTags(path.join(music, "tagged.mp3"), covers)).cover, tags.cover)
 
@@ -50,22 +60,22 @@ test("import reads tags, caches them, and keeps edits only for known tracks", as
   const library = new LocalLibrary(store, { coversDir: covers })
   await library.load()
   const { tracks, imported } = await library.addFolder(music)
-  const mp3 = tracks.find((track) => track.format === "MP3")
+  const mp3 = present(tracks.find((track) => track.format === "MP3"))
   assert.equal(mp3.album, "Álbum Teste")
   assert.equal(mp3.title, "Primeira")
   // Untagged titles keep the file name.
-  assert.equal(tracks.find((track) => track.format === "FLAC").title, "tagged")
+  assert.equal(present(tracks.find((track) => track.format === "FLAC")).title, "tagged")
   assert.equal(mp3.scanned, true)
-  assert.ok(mp3.addedAt > 0)
+  assert.ok((mp3.addedAt ?? 0) > 0)
   await library.savePreferences({ tagEdits: { [imported[0]]: { album: "Editado" }, unknown: { album: "x" } } })
 
   // Reloading must not read the files again: corrupt them and compare.
   for (const name of await fs.readdir(music)) await fs.writeFile(path.join(music, name), "not audio anymore")
   const restored = new LocalLibrary(store, { coversDir: covers })
   const saved = await restored.load()
-  assert.equal(saved.tracks.find((track) => track.id === mp3.id).album, "Álbum Teste")
-  assert.equal(saved.tracks.find((track) => track.id === mp3.id).title, "Primeira")
-  assert.equal(saved.tracks.find((track) => track.id === mp3.id).addedAt, mp3.addedAt)
+  assert.equal(present(saved.tracks.find((track) => track.id === mp3.id)).album, "Álbum Teste")
+  assert.equal(present(saved.tracks.find((track) => track.id === mp3.id)).title, "Primeira")
+  assert.equal(present(saved.tracks.find((track) => track.id === mp3.id)).addedAt, mp3.addedAt)
   assert.deepEqual(saved.tagEdits, { [imported[0]]: { album: "Editado" } })
 })
 
@@ -77,7 +87,7 @@ test("scanPending reads tags of tracks saved before tag support", async (t) => {
   const library = new LocalLibrary(store, { coversDir: covers })
   const loaded = await library.load()
   assert.ok(loaded.tracks.every((track) => !track.scanned && !track.album))
-  const batches = []
+  const batches: Track[][] = []
   assert.equal(await library.scanPending((tracks) => batches.push(tracks), 1), 2)
   assert.equal(batches.length, 2)
   assert.deepEqual(batches[1].map((track) => track.album).sort(), ["Disco FLAC", "Álbum Teste"])

@@ -1,9 +1,18 @@
-const { createHash } = require("node:crypto")
-const { createWriteStream } = require("node:fs")
-const fs = require("node:fs/promises")
-const path = require("node:path")
-const { pipeline } = require("node:stream/promises")
-const { contentTypes } = require("./audio.cjs")
+import { createHash } from "node:crypto"
+import { createWriteStream } from "node:fs"
+import fs from "node:fs/promises"
+import path from "node:path"
+import { pipeline } from "node:stream/promises"
+import type { Instance as WebTorrentClient, Torrent, TorrentFile } from "webtorrent"
+import type { SaveProgress, SaveStarted, TorrentExpansion, TorrentProgress } from "../shared/types.ts"
+import { contentTypes } from "./audio.ts"
+import type { VirtualTrack, VirtualTracks } from "./audio.ts"
+
+type SaveEntry = { index: number; file: TorrentFile; destination: string; copying?: boolean }
+type SaveJob = { torrent: Torrent; name: string; requested: Map<number, TorrentFile>; pending: Map<number, SaveEntry>; saved: string[]; failed: number; finished: boolean }
+export type SaveOutcome = { infoHash: string; name: string; paths: string[]; failed: number; cancelled: boolean }
+export type PreparedTrack = { id: string; infoHash: string; name: string; fileName: string; length: number }
+type EngineOptions = { cachePath: string; allowUrl?: (url: string) => boolean }
 
 // webtorrent v3 is ESM-only; it is imported lazily so requiring this module
 // (from tests or before first use) never touches the network or the bundle.
@@ -23,13 +32,13 @@ const MAX_SAVE_DEPTH = 4
 const UNSAFE_SEGMENT = /[<>:"/\\|?*\u0000-\u001f\u007f]/g
 const RESERVED_NAME = /^(con|prn|aux|nul|com\d|lpt\d)$/i
 
-function isAudioName(name) {
+export function isAudioName(name: string): boolean {
   return AUDIO_EXTENSIONS.includes(path.extname(name).slice(1).toLowerCase())
 }
 
 // Torrent paths are untrusted: each segment is rewritten so it can neither
 // climb out of the save folder nor produce names Windows or macOS reject.
-function safeSegment(value, keepExtension = false) {
+export function safeSegment(value: unknown, keepExtension = false): string {
   const text = String(value ?? "").replace(UNSAFE_SEGMENT, "_").trim()
   const candidate = keepExtension ? path.extname(text) : ""
   const extension = candidate.length <= 16 ? candidate : ""
@@ -42,7 +51,7 @@ function safeSegment(value, keepExtension = false) {
 // Maps a webtorrent file path ("Torrent Name/CD1/01 - Track.flac") to its
 // place inside the save folder, keeping the torrent folder and the deepest
 // subfolders so very nested releases stay under OS path limits.
-function savePath(root, filePath) {
+export function savePath(root: string, filePath: unknown): string {
   const parts = String(filePath ?? "").split(/[\\/]+/)
   const segments = parts.map((part, index) => safeSegment(part, index === parts.length - 1)).filter(Boolean)
   if (!segments.length || !isAudioName(segments[segments.length - 1])) throw new Error("O torrent contém um nome de arquivo inválido.")
@@ -56,7 +65,7 @@ function savePath(root, filePath) {
 
 // Reuses an identical earlier save (same size) and never overwrites a
 // different file: "Track.flac", then "Track (2).flac", "Track (3).flac"...
-async function availablePath(destination, length) {
+export async function availablePath(destination: string, length: number): Promise<{ path: string; exists: boolean }> {
   const extension = path.extname(destination)
   const base = extension ? destination.slice(0, -extension.length) : destination
   for (let attempt = 1; attempt <= 99; attempt++) {
@@ -65,27 +74,27 @@ async function availablePath(destination, length) {
       const stat = await fs.stat(candidate)
       if (stat.isFile() && stat.size === length) return { path: candidate, exists: true }
     } catch (error) {
-      if (error.code === "ENOENT") return { path: candidate, exists: false }
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { path: candidate, exists: false }
       throw error
     }
   }
   throw new Error("Já existem cópias demais deste arquivo na pasta de músicas salvas.")
 }
 
-function isHttpUrl(value) {
+function isHttpUrl(value: string): boolean {
   try { return ["http:", "https:"].includes(new URL(value).protocol) } catch { return false }
 }
 
 // Magnets and direct .torrent links are always accepted; other HTTP links
 // (indexer download proxies) only when `allowUrl` vouches for their origin.
-function isSupportedSource(source, allowUrl = () => false) {
+export function isSupportedSource(source: unknown, allowUrl: (url: string) => boolean = () => false): source is string {
   if (typeof source !== "string") return false
   return MAGNET_PATTERN.test(source) || TORRENT_URL_PATTERN.test(source) || (isHttpUrl(source) && allowUrl(source) === true)
 }
 
-async function readLimited(response, limit) {
+async function readLimited(response: Response, limit: number): Promise<Buffer> {
   if (Number(response.headers.get("content-length")) > limit) throw new Error("O arquivo .torrent entregue pelo indexador é grande demais.")
-  const chunks = []
+  const chunks: Buffer[] = []
   let size = 0
   for await (const chunk of response.body ?? []) {
     size += chunk.byteLength
@@ -97,16 +106,16 @@ async function readLimited(response, limit) {
 
 // Indexer download links answer with a redirect to a magnet, a redirect to
 // the tracker's .torrent, the .torrent bytes, or (rarely) a magnet as text.
-async function resolveSource(source) {
+export async function resolveSource(source: string): Promise<string | Buffer> {
   if (MAGNET_PATTERN.test(source)) return source
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), RESOLVE_TIMEOUT_MS)
   try {
     let url = source
     for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-      let response
+      let response: Response
       try { response = await fetch(url, { redirect: "manual", signal: controller.signal }) } catch (error) {
-        throw new Error(error?.name === "AbortError" ? "O indexador demorou demais para entregar o torrent." : "Não foi possível baixar o torrent pelo indexador. Verifique se ele está em execução.")
+        throw new Error((error as Error | undefined)?.name === "AbortError" ? "O indexador demorou demais para entregar o torrent." : "Não foi possível baixar o torrent pelo indexador. Verifique se ele está em execução.")
       }
       if (response.status >= 300 && response.status < 400) {
         const location = (response.headers.get("location") ?? "").trim()
@@ -139,10 +148,10 @@ async function resolveSource(source) {
 
 // RFC 4648 base32 decoder (Node has no Buffer base32 support). Info hashes
 // arrive as 32-char base32 or 40-char hex; both normalize to 40-char hex.
-function decodeBase32(value) {
+export function decodeBase32(value: unknown): string | null {
   let bits = 0
   let buffer = 0
-  const bytes = []
+  const bytes: number[] = []
   for (const char of String(value).toUpperCase()) {
     if (char === "=") continue
     const code = char.charCodeAt(0)
@@ -160,8 +169,8 @@ function decodeBase32(value) {
 
 // Magnets carry either a 40-char hex or a 32-char base32 info hash; the hex
 // form is used as the deduplication key across magnet variants.
-function normalizeInfoHash(source) {
-  const raw = MAGNET_PATTERN.exec(source)?.[1]
+export function normalizeInfoHash(source: unknown): string | null {
+  const raw = typeof source === "string" ? MAGNET_PATTERN.exec(source)?.[1] : undefined
   if (!raw) return null
   const value = raw.toLowerCase()
   if (value.length === 40) return /^[0-9a-f]+$/.test(value) ? value : null
@@ -169,12 +178,12 @@ function normalizeInfoHash(source) {
   return decoded && decoded.length === 40 ? decoded : null
 }
 
-function torrentTrackId(infoHash, fileIndex) {
+export function torrentTrackId(infoHash: string, fileIndex: number | string): string {
   return createHash("sha256").update(`torrent:${infoHash}:${fileIndex}`).digest("hex")
 }
 
 // Picks the default track: the largest audio file in the torrent.
-function defaultFileIndex(files) {
+export function defaultFileIndex(files: readonly { name: string; length: number }[]): number {
   let best = -1
   for (let index = 0; index < files.length; index++) {
     if (!isAudioName(files[index].name)) continue
@@ -183,23 +192,26 @@ function defaultFileIndex(files) {
   return best
 }
 
-class TorrentEngine {
-  constructor({ cachePath, allowUrl = () => false }) {
+export class TorrentEngine implements VirtualTracks {
+  cachePath: string
+  allowUrl: (url: string) => boolean
+  client: WebTorrentClient | null = null
+  torrents = new Map<string, Torrent>() // infoHash hex -> torrent
+  sourceKeys = new Map<string, string>() // source string -> infoHash hex, learned on first add
+  adding = new Map<string, Promise<Torrent>>() // source string -> in-flight add promise
+  tracks = new Map<string, { torrent: Torrent; file: TorrentFile }>() // virtual track id -> entry
+  lastUsedAt = new Map<string, number>() // infoHash hex -> timestamp
+  saves = new Map<string, SaveJob>() // infoHash hex -> pending save job
+  onProgress: ((snapshot: TorrentProgress[]) => void) | null = null
+  onSaved: ((outcome: SaveOutcome) => void) | null = null
+  sweeper: NodeJS.Timeout | null = null
+
+  constructor({ cachePath, allowUrl = () => false }: EngineOptions) {
     this.cachePath = cachePath
     this.allowUrl = allowUrl
-    this.client = null
-    this.torrents = new Map() // infoHash hex -> torrent
-    this.sourceKeys = new Map() // source string -> infoHash hex, learned on first add
-    this.adding = new Map() // source string -> in-flight add promise
-    this.tracks = new Map() // virtual track id -> { torrent, file }
-    this.lastUsedAt = new Map() // infoHash hex -> timestamp
-    this.saves = new Map() // infoHash hex -> pending save job
-    this.onProgress = null
-    this.onSaved = null
-    this.sweeper = null
   }
 
-  async ensureClient() {
+  async ensureClient(): Promise<WebTorrentClient> {
     if (this.client) return this.client
     const { default: WebTorrent } = await import("webtorrent")
     // TCP peers only: native uTP/WebRTC modules are not rebuilt for Electron,
@@ -215,7 +227,7 @@ class TorrentEngine {
     await fs.mkdir(this.cachePath, { recursive: true })
   }
 
-  liveTorrent(key) {
+  liveTorrent(key: string | null | undefined): Torrent | null {
     const torrent = key ? this.torrents.get(key) : null
     return torrent && !torrent.destroyed ? torrent : null
   }
@@ -223,7 +235,7 @@ class TorrentEngine {
   // The same source always maps to one torrent: magnets dedupe by info hash,
   // download links by the hash learned on their first add, and concurrent
   // adds of one source share a single request.
-  async addTorrent(source) {
+  async addTorrent(source: unknown): Promise<Torrent> {
     if (!isSupportedSource(source, this.allowUrl)) throw new Error("Fonte de torrent não suportada; use um magnet, um link .torrent ou um link do indexador configurado.")
     const known = this.liveTorrent(this.sourceKeys.get(source) ?? normalizeInfoHash(source))
     if (known) return known
@@ -235,16 +247,16 @@ class TorrentEngine {
     return adding
   }
 
-  async openTorrent(source) {
+  async openTorrent(source: string): Promise<Torrent> {
     const input = await resolveSource(source)
     const resolvedKey = typeof input === "string" ? normalizeInfoHash(input) : null
     const resolved = this.liveTorrent(resolvedKey)
     if (resolved) {
-      this.sourceKeys.set(source, resolvedKey)
+      this.sourceKeys.set(source, resolvedKey!)
       return resolved
     }
     const client = await this.ensureClient()
-    const torrent = await new Promise((resolve, reject) => {
+    const torrent = await new Promise<Torrent>((resolve, reject) => {
       let settled = false
       const timeout = setTimeout(() => {
         if (settled) return
@@ -257,7 +269,7 @@ class TorrentEngine {
         settled = true
         resolve(ready)
       })
-      added.once("error", (error) => {
+      added.once("error", (error: Error | string) => {
         clearTimeout(timeout)
         if (settled) return
         settled = true
@@ -265,7 +277,7 @@ class TorrentEngine {
         // link) is a duplicate for webtorrent: reuse the open one.
         const twin = this.liveTorrent(added.infoHash)
         if (twin) resolve(twin)
-        else reject(new Error(`Não foi possível abrir o torrent: ${error.message || error}`))
+        else reject(new Error(`Não foi possível abrir o torrent: ${(typeof error === "string" ? error : error.message) || error}`))
       })
     })
     const torrentKey = torrent.infoHash
@@ -276,7 +288,7 @@ class TorrentEngine {
     return torrent
   }
 
-  describe(torrent) {
+  describe(torrent: Torrent): TorrentExpansion {
     return {
       infoHash: torrent.infoHash,
       name: torrent.name,
@@ -284,12 +296,12 @@ class TorrentEngine {
     }
   }
 
-  async expand(source) {
+  async expand(source: unknown): Promise<TorrentExpansion> {
     return this.describe(await this.addTorrent(source))
   }
 
-  // Registers a virtual track id that audio.cjs can serve byte ranges for.
-  async prepare(source, fileIndex) {
+  // Registers a virtual track id that audio.ts can serve byte ranges for.
+  async prepare(source: unknown, fileIndex: number | string): Promise<PreparedTrack> {
     const torrent = await this.addTorrent(source)
     const file = torrent.files[Number(fileIndex)]
     if (!file || !isAudioName(file.name)) throw new Error("Este arquivo do torrent não é um áudio compatível.")
@@ -300,37 +312,37 @@ class TorrentEngine {
     return { id, infoHash: torrent.infoHash, name: torrent.name, fileName: file.name, length: file.length }
   }
 
-  resolveTrack(id) {
+  resolveTrack(id: string): VirtualTrack | null {
     const entry = this.tracks.get(id)
     if (!entry || entry.torrent.destroyed) return null
     const extension = path.extname(entry.file.name).toLowerCase()
     return {
       length: entry.file.length,
       contentType: contentTypes[extension] || "application/octet-stream",
-      stream: (start, end) => entry.file.createReadStream({ start, end }),
+      stream: (start: number, end: number) => entry.file.createReadStream({ start, end }),
     }
   }
 
-  release(id) {
+  release(id: string) {
     this.tracks.delete(id)
   }
 
   // Saving pins the torrent until every requested file is complete and
   // copied into the save folder; streaming the same torrent keeps working.
-  async save(source, fileIndexes, root) {
+  async save(source: unknown, fileIndexes: unknown, root: string): Promise<SaveStarted> {
     return this.startSave(await this.addTorrent(source), fileIndexes, root)
   }
 
-  saveTrack(id, root) {
+  saveTrack(id: string, root: string): SaveStarted {
     const entry = this.tracks.get(id)
     if (!entry || entry.torrent.destroyed) throw new Error("Esta música não está mais ativa no torrent. Toque-a de novo para salvar.")
     return this.startSave(entry.torrent, [entry.torrent.files.indexOf(entry.file)], root)
   }
 
-  startSave(torrent, fileIndexes, root) {
+  startSave(torrent: Torrent, fileIndexes: unknown, root: string): SaveStarted {
     if (typeof root !== "string" || !path.isAbsolute(root)) throw new Error("Escolha uma pasta válida para salvar as músicas.")
-    const requested = []
-    for (const value of new Set(Array.isArray(fileIndexes) ? fileIndexes : [])) {
+    const requested: SaveEntry[] = []
+    for (const value of new Set(Array.isArray(fileIndexes) ? fileIndexes as unknown[] : [])) {
       const index = Number(value)
       const file = Number.isInteger(index) ? torrent.files[index] : undefined
       if (!file || !isAudioName(file.name)) continue
@@ -356,7 +368,7 @@ class TorrentEngine {
     return { infoHash: torrent.infoHash, name: torrent.name, queued, pending: job.pending.size }
   }
 
-  async copySaved(job, index) {
+  async copySaved(job: SaveJob, index: number) {
     const entry = job.pending.get(index)
     if (!entry || entry.copying || job.finished) return
     entry.copying = true
@@ -381,17 +393,17 @@ class TorrentEngine {
   }
 
   // Reports once per job; cancelled jobs count their unfinished files as failed.
-  finishSave(job, cancelled) {
+  finishSave(job: SaveJob, cancelled: boolean) {
     if (job.finished) return
     job.finished = true
     const key = job.torrent.infoHash
     if (this.saves.get(key) === job) this.saves.delete(key)
     this.touch(key)
-    const outcome = { infoHash: key, name: job.name, paths: [...job.saved], failed: job.failed + (cancelled ? job.pending.size : 0), cancelled }
+    const outcome: SaveOutcome = { infoHash: key, name: job.name, paths: [...job.saved], failed: job.failed + (cancelled ? job.pending.size : 0), cancelled }
     try { this.onSaved?.(outcome) } catch { /* listener errors must not break the engine */ }
   }
 
-  saveProgress(job) {
+  saveProgress(job: SaveJob | undefined): SaveProgress | undefined {
     if (!job) return undefined
     let total = 0
     let downloaded = 0
@@ -402,7 +414,7 @@ class TorrentEngine {
     return { files: job.requested.size, done: job.saved.length, progress: total ? downloaded / total : 0 }
   }
 
-  touch(infoHash) {
+  touch(infoHash: string) {
     this.lastUsedAt.set(infoHash, Date.now())
   }
 
@@ -410,14 +422,14 @@ class TorrentEngine {
   // every track registered on other torrents and destroys them (plus their
   // cached data) — the stream-only posture from the playback policy issue.
   // Torrents with a pending save are pinned and survive this policy.
-  retainOnly(keep) {
+  retainOnly(keep: Torrent) {
     for (const [key, torrent] of [...this.torrents]) {
       if (torrent === keep || torrent.destroyed || this.saves.has(key)) continue
       this.destroyTorrent(key, torrent)
     }
   }
 
-  destroyTorrent(key, torrent) {
+  destroyTorrent(key: string, torrent: Torrent) {
     const job = this.saves.get(key)
     if (job) this.finishSave(job, true)
     for (const [source, value] of this.sourceKeys) if (value === key) this.sourceKeys.delete(source)
@@ -465,7 +477,7 @@ class TorrentEngine {
 
   // Streams are always stopped; pinned saves only when explicitly asked, so
   // the stream-only policy (leaving a torrent track) never cancels a save.
-  async stopAll({ includeSaves = false } = {}) {
+  async stopAll({ includeSaves = false }: { includeSaves?: boolean } = {}) {
     for (const [key, torrent] of [...this.torrents]) {
       if (!includeSaves && this.saves.has(key)) continue
       this.destroyTorrent(key, torrent)
@@ -479,9 +491,8 @@ class TorrentEngine {
   async destroy() {
     this.stopSweeper()
     await this.stopAll({ includeSaves: true })
-    if (this.client) await new Promise((resolve) => this.client.destroy(() => resolve()))
+    const client = this.client
+    if (client) await new Promise<void>((resolve) => client.destroy(() => resolve()))
     this.client = null
   }
 }
-
-module.exports = { TorrentEngine, isAudioName, isSupportedSource, normalizeInfoHash, torrentTrackId, defaultFileIndex, decodeBase32, safeSegment, savePath, availablePath, resolveSource }

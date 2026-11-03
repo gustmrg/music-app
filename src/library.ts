@@ -1,24 +1,7 @@
-export type TrackTags = { artist?: string; albumArtist?: string; album?: string; genre?: string; year?: number; trackNo?: number; discNo?: number; duration?: number; cover?: string }
-export type Track = TrackTags & { id: string; path: string; title: string; folder: string; format: string; url?: string; source?: "youtube" | "torrent"; isLive?: boolean; infoHash?: string; addedAt?: number; scanned?: boolean }
-// In-app tag overrides; files are never modified. "" (or year 0) clears a field.
-export type TagEdit = { artist?: string; albumArtist?: string; album?: string; genre?: string; year?: number }
+import type { Library, TagEdit, Track } from "../shared/types"
+
+export type { TrackTags, Track, TagEdit, Playlist, DiscoverProvider, DiscoverConnection, DiscoverSettings, Preferences, Library, ImportResult, DiscoverResult, TorrentFile, TorrentExpansion, PreparedTorrentTrack, SaveProgress, TorrentProgress, SaveStarted, TorrentSaved } from "../shared/types"
 export type Album = { key: string; title: string; artist: string; year?: number; cover?: string; trackIds: string[] }
-export type Playlist = { id: string; name: string; trackIds: string[] }
-export type DiscoverProvider = "prowlarr" | "torznab"
-export type DiscoverConnection = { url: string; apiKey: string; categories: string }
-// Top-level fields are the active provider's; profiles keep each provider's own.
-export type DiscoverSettings = DiscoverConnection & { provider: DiscoverProvider; profiles: Partial<Record<DiscoverProvider, DiscoverConnection>>; noticeAccepted: boolean }
-export type Preferences = { liked: string[]; recent: string[]; playlists: Playlist[]; volume: number; discover: DiscoverSettings; tagEdits: Record<string, TagEdit> }
-export type Library = Preferences & { tracks: Track[]; saveFolder: string }
-export type ImportResult = { tracks: Track[]; imported: string[]; skipped: number; playlist?: Playlist }
-export type DiscoverResult = { title: string; artist: string; album: string; year: string; format: string; display: string; size: number; seeders: number; indexer: string; publishedAt: string; source: string }
-export type TorrentFile = { index: number; name: string; length: number; isAudio: boolean }
-export type TorrentExpansion = { infoHash: string; name: string; files: TorrentFile[] }
-export type PreparedTorrentTrack = { id: string; infoHash: string; name: string; fileName: string; length: number; url: string }
-export type SaveProgress = { files: number; done: number; progress: number }
-export type TorrentProgress = { infoHash: string; name: string; progress: number; peers: number; speed: number; saving?: SaveProgress }
-export type SaveStarted = { infoHash: string; name: string; queued: number; pending: number }
-export type TorrentSaved = { name: string; saved: number; failed: number; cancelled: boolean; result: ImportResult | null; error?: string }
 export const emptyLibrary: Library = { tracks: [], liked: [], recent: [], playlists: [], tagEdits: {}, volume: 0.7, discover: { provider: "torznab", url: "", apiKey: "", categories: "3000", profiles: {}, noticeAccepted: false }, saveFolder: "" }
 export const audioExtensions = /\.(mp3|wav|flac|ogg|opus|m4a|aac|webm)$/i
 export const folderName = (folder: string) => folder.split(/[\\/]/).filter(Boolean).pop() || "Arquivos avulsos"

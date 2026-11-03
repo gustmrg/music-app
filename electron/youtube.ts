@@ -1,35 +1,47 @@
-const { execFile } = require("node:child_process")
-const { promisify } = require("node:util")
-const { createHash } = require("node:crypto")
+import { execFile } from "node:child_process"
+import { promisify } from "node:util"
+import { createHash } from "node:crypto"
+import type { Track, YouTubeResolved } from "../shared/types.ts"
 
 const execFileAsync = promisify(execFile)
 
+export type YouTubeTarget = { kind: "video" | "playlist" | "channel-live"; id: string; url: string }
+export type YouTubeVideo = { id: string; url: string; title: string; channel: string; isLive: boolean }
+// What the library needs to store a video; the id is derived from the URL.
+export type YouTubeVideoInput = Pick<YouTubeVideo, "url" | "title" | "channel" | "isLive">
+export type YouTubeTrack = Track & { source: "youtube"; isLive: boolean }
+
+// The subset of yt-dlp's JSON this module reads; everything is optional
+// because it comes from an external program.
+type VideoInfo = { id?: unknown; title?: unknown; fulltitle?: unknown; channel?: unknown; uploader?: unknown; live_status?: unknown; is_live?: unknown }
+type PlaylistInfo = VideoInfo & { _type?: unknown; entries?: unknown }
+
 // Accepts watch pages, youtu.be, Shorts, live and embed links, YouTube Music, and playlists.
-const VIDEO_PATTERN = /(?:youtube(?:-nocookie|music)?\.com\/(?:watch\?(?:.*&)?v=|shorts\/|live\/|embed\/)|youtu\.be\/)([\w-]{11})/i
-const PLAYLIST_PATTERN = /youtube(?:-nocookie|music)?\.com\/playlist\?(?:.*&)?list=([\w-]+)/i
-const LIST_PARAMETER = /[?&]list=([\w-]+)/i
+export const VIDEO_PATTERN = /(?:youtube(?:-nocookie|music)?\.com\/(?:watch\?(?:.*&)?v=|shorts\/|live\/|embed\/)|youtu\.be\/)([\w-]{11})/i
+export const PLAYLIST_PATTERN = /youtube(?:-nocookie|music)?\.com\/playlist\?(?:.*&)?list=([\w-]+)/i
+export const LIST_PARAMETER = /[?&]list=([\w-]+)/i
 // A channel's "/live" page points at whatever it is streaming right now:
 // @handle, /channel/UC…, /c/name, and /user/name all have one.
-const CHANNEL_LIVE_PATTERN = /^https?:\/\/(?:www\.|m\.)?youtube\.com\/(@[^/?#\s]+|channel\/UC[\w-]{22}|c\/[^/?#\s]+|user\/[^/?#\s]+)\/live\/?(?:[?#]\S*)?$/i
-const MAX_PLAYLIST_ENTRIES = 500
+export const CHANNEL_LIVE_PATTERN = /^https?:\/\/(?:www\.|m\.)?youtube\.com\/(@[^/?#\s]+|channel\/UC[\w-]{22}|c\/[^/?#\s]+|user\/[^/?#\s]+)\/live\/?(?:[?#]\S*)?$/i
+export const MAX_PLAYLIST_ENTRIES = 500
 // Lives have no audio-only format, so "bestaudio" alone would fall back to
 // the 1080p HLS variant. Format 91 (144p) carries the same AAC audio with a
 // fraction of the bandwidth; regular videos still get an audio-only format.
-const STREAM_FORMAT = "bestaudio/91/worst"
+export const STREAM_FORMAT = "bestaudio/91/worst"
 
-function canonicalVideoUrl(id) {
+function canonicalVideoUrl(id: string) {
   return `https://www.youtube.com/watch?v=${id}`
 }
 
-function canonicalPlaylistUrl(id) {
+function canonicalPlaylistUrl(id: string) {
   return `https://www.youtube.com/playlist?list=${id}`
 }
 
-function canonicalChannelLiveUrl(channel) {
+function canonicalChannelLiveUrl(channel: string) {
   return `https://www.youtube.com/${channel}/live`
 }
 
-function matchYouTubeUrl(value) {
+export function matchYouTubeUrl(value: unknown): YouTubeTarget | null {
   if (typeof value !== "string") return null
   const trimmed = value.trim()
   if (!/^https?:\/\//i.test(trimmed)) return null
@@ -46,21 +58,22 @@ function matchYouTubeUrl(value) {
 // "not_live"; older or flat entries may only carry the is_live boolean.
 // Scheduled and ended streams are not live: they become live (or a regular
 // recording) later, and resolving at play time picks that up.
-function isLiveInfo(info) {
+export function isLiveInfo(info: unknown): boolean {
   if (!info || typeof info !== "object") return false
-  if (typeof info.live_status === "string") return info.live_status === "is_live"
-  return info.is_live === true
+  const { live_status, is_live } = info as VideoInfo
+  if (typeof live_status === "string") return live_status === "is_live"
+  return is_live === true
 }
 
 // yt-dlp appends the current date and time to a live's title; fulltitle
 // keeps the title as the channel wrote it.
-function videoTitle(info) {
+function videoTitle(info: VideoInfo) {
   return cleanTitle(info.fulltitle || info.title)
 }
 
 // Parses free-form user text into unique canonical YouTube targets.
-function parseYouTubeLinks(text) {
-  const targets = new Map()
+export function parseYouTubeLinks(text: unknown): { targets: YouTubeTarget[]; invalid: number } {
+  const targets = new Map<string, YouTubeTarget>()
   let invalid = 0
   for (const line of String(text ?? "").split(/\r?\n/)) {
     for (const token of line.split(/[;\s]+/)) {
@@ -73,17 +86,17 @@ function parseYouTubeLinks(text) {
   return { targets: [...targets.values()], invalid }
 }
 
-function cleanTitle(value) {
+function cleanTitle(value: unknown) {
   return String(value ?? "").replace(/[\t\r\n]+/g, " ").trim().slice(0, 200)
 }
 
 // Flattens yt-dlp -J --flat-playlist output into { id, url, title, channel, isLive } entries.
-function parseMetadata(payload, limit = MAX_PLAYLIST_ENTRIES) {
-  const json = JSON.parse(payload)
+export function parseMetadata(payload: string, limit = MAX_PLAYLIST_ENTRIES): { playlistTitle: string; videos: YouTubeVideo[] } {
+  const json: PlaylistInfo | null = JSON.parse(payload)
   if (!json || typeof json !== "object") throw new Error("Resposta inesperada do yt-dlp.")
   if (json._type === "playlist" && Array.isArray(json.entries)) {
-    const videos = json.entries
-      .map((entry) => {
+    const videos = (json.entries as (VideoInfo | null)[])
+      .map((entry): YouTubeVideo | null => {
         if (!entry || typeof entry.id !== "string" || !/^[\w-]{11}$/.test(entry.id)) return null
         return {
           id: entry.id,
@@ -93,7 +106,7 @@ function parseMetadata(payload, limit = MAX_PLAYLIST_ENTRIES) {
           isLive: isLiveInfo(entry),
         }
       })
-      .filter(Boolean)
+      .filter((video) => video !== null)
       .slice(0, limit)
     return { playlistTitle: cleanTitle(json.title), videos }
   }
@@ -110,10 +123,13 @@ function parseMetadata(payload, limit = MAX_PLAYLIST_ENTRIES) {
   }
 }
 
-async function ytDlp(arguments_) {
+type ExecError = Error & { code?: string; killed?: boolean; stderr?: string }
+
+async function ytDlp(arguments_: string[]) {
   try {
     return await execFileAsync("yt-dlp", ["--no-warnings", "--no-progress", "--flat-playlist", ...arguments_], { timeout: 120_000, maxBuffer: 64 * 1024 * 1024 })
-  } catch (error) {
+  } catch (caught) {
+    const error = caught as ExecError
     if (error.code === "ENOENT") throw new Error("O yt-dlp não foi encontrado. Instale-o (por exemplo, pipx install yt-dlp ou baixe o binário) e reinicie o aplicativo.")
     if (error.killed) throw new Error("A leitura dos metadados do YouTube demorou demais e foi cancelada.")
     const details = String(error.stderr || error.message || "").split(/\r?\n/).filter((line) => line.startsWith("ERROR")).join(" ").trim()
@@ -122,13 +138,13 @@ async function ytDlp(arguments_) {
 }
 
 // Expands a canonical video or playlist URL into video entries via yt-dlp.
-async function fetchVideos(target) {
+export async function fetchVideos(target: YouTubeTarget) {
   const { stdout } = await ytDlp(["-J", target.url])
   return parseMetadata(stdout)
 }
 
 // Reads the two lines printed by resolveStream: live status, then stream URL.
-function parseResolved(stdout) {
+export function parseResolved(stdout: unknown): YouTubeResolved {
   const lines = String(stdout ?? "").trim().split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
   const url = lines.at(-1)
   if (!url || !/^https:\/\//.test(url)) throw new Error("Não foi possível obter o áudio deste vídeo. Ele pode ser privado, com restrição de idade ou indisponível.")
@@ -138,12 +154,12 @@ function parseResolved(stdout) {
 // Resolves the stream URL for playback and whether the video is live right
 // now. Googlevideo URLs expire after a few hours, so this must run at play
 // time, not import time.
-async function resolveStream(url) {
+export async function resolveStream(url: string): Promise<YouTubeResolved> {
   const { stdout } = await ytDlp(["-f", STREAM_FORMAT, "--no-playlist", "--print", "%(live_status)s", "--print", "%(url)s", url])
   return parseResolved(stdout)
 }
 
-function describeYouTube(url, title, channel, isLive = false) {
+export function describeYouTube(url: string, title: unknown, channel: unknown, isLive: unknown = false): YouTubeTrack {
   const path = canonicalVideoUrl(VIDEO_PATTERN.exec(url)?.[1] ?? url)
   return {
     id: createHash("sha256").update(path).digest("hex"),
@@ -156,24 +172,6 @@ function describeYouTube(url, title, channel, isLive = false) {
   }
 }
 
-function isYouTubeTrackPath(path) {
+export function isYouTubeTrackPath(path: unknown): boolean {
   return /^https:\/\/www\.youtube\.com\/watch\?v=[\w-]{11}$/.test(String(path))
-}
-
-module.exports = {
-  VIDEO_PATTERN,
-  PLAYLIST_PATTERN,
-  LIST_PARAMETER,
-  CHANNEL_LIVE_PATTERN,
-  MAX_PLAYLIST_ENTRIES,
-  STREAM_FORMAT,
-  matchYouTubeUrl,
-  parseYouTubeLinks,
-  parseMetadata,
-  parseResolved,
-  isLiveInfo,
-  fetchVideos,
-  resolveStream,
-  describeYouTube,
-  isYouTubeTrackPath,
 }
