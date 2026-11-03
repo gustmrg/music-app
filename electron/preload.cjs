@@ -27,6 +27,11 @@ contextBridge.exposeInMainWorld("desktop", {
     ipcRenderer.on("torrent:saved", handler)
     return () => ipcRenderer.removeListener("torrent:saved", handler)
   },
+  onLibraryTracks: (listener) => {
+    const handler = (_event, tracks) => listener(tracks)
+    ipcRenderer.on("library:tracks", handler)
+    return () => ipcRenderer.removeListener("library:tracks", handler)
+  },
   onTorrentProgress: (listener) => {
     const handler = (_event, snapshot) => listener(snapshot)
     ipcRenderer.on("torrent:progress", handler)

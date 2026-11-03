@@ -4,6 +4,9 @@ const { createHash, randomUUID } = require("node:crypto")
 const { fileURLToPath } = require("node:url")
 const { describeYouTube, isYouTubeTrackPath } = require("./youtube.cjs")
 const { cleanDiscoverSettings } = require("./discover.cjs")
+const { readTags, cleanTags, cleanTagEdit, mapLimit } = require("./metadata.cjs")
+
+const TAG_READ_CONCURRENCY = 8
 
 const AUDIO_EXTENSIONS = ["mp3", "wav", "flac", "ogg", "opus", "m4a", "aac", "webm"]
 const isAudio = (file) => AUDIO_EXTENSIONS.includes(path.extname(file).slice(1).toLowerCase())
@@ -31,6 +34,8 @@ function cleanPreferences(value, tracks) {
     recent: references(value?.recent).slice(0, 100),
     volume: Number.isFinite(value?.volume) ? Math.max(0, Math.min(1, value.volume)) : 0.7,
     discover: cleanDiscoverSettings(value?.discover),
+    tagEdits: Object.fromEntries(Object.entries(value?.tagEdits && typeof value.tagEdits === "object" ? value.tagEdits : {})
+      .filter(([id]) => ids.has(id)).map(([id, edit]) => [id, cleanTagEdit(edit)]).filter(([, edit]) => Object.keys(edit).length)),
     playlists: (Array.isArray(value?.playlists) ? value.playlists : []).filter((item) => {
       if (!item || typeof item.id !== "string" || playlistIds.has(item.id) || typeof item.name !== "string" || !item.name.trim()) return false
       playlistIds.add(item.id)
@@ -44,9 +49,10 @@ function cleanPreferences(value, tracks) {
 const cleanSaveFolder = (value) => typeof value === "string" && path.isAbsolute(value) && isLocal(value) ? value : ""
 
 class LocalLibrary {
-  constructor(storeFile, { defaultSaveFolder = "" } = {}) {
+  constructor(storeFile, { defaultSaveFolder = "", coversDir = "" } = {}) {
     this.storeFile = storeFile
     this.defaultSaveFolder = defaultSaveFolder
+    this.coversDir = coversDir
     this.saveFolder = ""
     this.tracks = new Map()
     this.preferences = cleanPreferences({}, [])
@@ -60,10 +66,13 @@ class LocalLibrary {
     if (saved.version !== 1 || !Array.isArray(saved.tracks)) throw new Error("Biblioteca local inválida; o arquivo salvo foi preservado.")
     for (const track of saved.tracks) {
       if (track?.source === "youtube" && isYouTubeTrackPath(track.path)) {
-        const item = describeYouTube(track.path, track.title, track.folder)
+        const item = { ...describeYouTube(track.path, track.title, track.folder), addedAt: Number.isSafeInteger(track.addedAt) ? track.addedAt : 0 }
         this.tracks.set(item.id, item)
       } else if (track && typeof track.path === "string" && path.isAbsolute(track.path) && isLocal(track.path) && isAudio(track.path)) {
-        const item = this.describe(track.path)
+        // Tags cached at import are reused; files are read again only when
+        // they were never scanned (libraries saved before tags existed).
+        const item = { ...this.describe(track.path), ...cleanTags(track), addedAt: Number.isSafeInteger(track.addedAt) ? track.addedAt : 0 }
+        if (track.scanned === true) item.scanned = true
         this.tracks.set(item.id, item)
       }
     }
@@ -107,18 +116,30 @@ class LocalLibrary {
     return this.writes
   }
 
+  // Unreadable or untagged files still import; they just have no tags.
+  async withTags(track) {
+    let tags = {}
+    try { tags = await readTags(track.path, this.coversDir) } catch { /* keep the file without tags */ }
+    return { ...track, ...tags, scanned: true }
+  }
+
   async addFiles(files) {
     const imported = []
     let skipped = 0
-    for (const file of files) {
+    const now = Date.now()
+    const described = await mapLimit(files, TAG_READ_CONCURRENCY, async (file) => {
       try {
-        if (!isLocal(file) || !isAudio(file)) { skipped++; continue }
+        if (!isLocal(file) || !isAudio(file)) return null
         const canonical = await fs.realpath(file)
-        if (!isLocal(canonical) || !isAudio(canonical) || !(await fs.stat(canonical)).isFile()) { skipped++; continue }
-        const track = this.describe(canonical)
-        this.tracks.set(track.id, track)
-        imported.push(track.id)
-      } catch { skipped++ }
+        if (!isLocal(canonical) || !isAudio(canonical) || !(await fs.stat(canonical)).isFile()) return null
+        return await this.withTags(this.describe(canonical))
+      } catch { return null }
+    })
+    for (const track of described) {
+      if (!track) { skipped++; continue }
+      track.addedAt = this.tracks.get(track.id)?.addedAt || now
+      this.tracks.set(track.id, track)
+      imported.push(track.id)
     }
     await this.persist()
     return { tracks: [...this.tracks.values()], imported: [...new Set(imported)], skipped }
@@ -159,6 +180,7 @@ class LocalLibrary {
     for (const video of videos) {
       if (!video || !isYouTubeTrackPath(video.url)) continue
       const track = describeYouTube(video.url, video.title, video.channel)
+      track.addedAt = this.tracks.get(track.id)?.addedAt || Date.now()
       if (!this.tracks.has(track.id)) imported.push(track.id)
       this.tracks.set(track.id, track)
     }
@@ -169,6 +191,21 @@ class LocalLibrary {
       imported: unique,
       skipped: videos.length - unique.length,
       playlist: playlistName && videos.length > 1 ? { id: randomUUID(), name: playlistName, trackIds: unique } : undefined,
+    }
+  }
+
+  // Reads tags of tracks imported before tag support, in small batches so the
+  // renderer can refresh as they arrive. Returns how many were scanned.
+  async scanPending(onBatch, batchSize = 50) {
+    let scanned = 0
+    for (;;) {
+      const pending = [...this.tracks.values()].filter((track) => !track.scanned && track.source !== "youtube").slice(0, batchSize)
+      if (!pending.length) return scanned
+      const updated = await mapLimit(pending, TAG_READ_CONCURRENCY, (track) => this.withTags(track))
+      for (const track of updated) if (this.tracks.has(track.id)) this.tracks.set(track.id, { ...this.tracks.get(track.id), ...track })
+      scanned += updated.length
+      await this.persist()
+      onBatch?.([...this.tracks.values()])
     }
   }
 

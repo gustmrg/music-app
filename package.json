@@ -24,6 +24,7 @@
     "clsx": "^2.1.1",
     "fast-xml-parser": "^5.11.2",
     "lucide-react": "^0.468.0",
+    "music-metadata": "~12.2.3",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "tailwind-merge": "^3.3.1",
@@ -52,6 +53,7 @@
       "dist/**/*",
       "electron/**/*",
       "!electron/*.test.cjs",
+      "!electron/fixtures/**",
       "package.json"
     ],
     "directories": {
