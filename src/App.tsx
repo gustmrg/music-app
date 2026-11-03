@@ -1,18 +1,20 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
-import { ArrowDown, ArrowUp, Clock3, FileAudio, Folder, FolderPlus, Heart, Library as LibraryIcon, ListMusic, Maximize2, Minus, Music2, Pencil, Play, Plus, Search, Trash2, Upload, X, Youtube } from "lucide-react"
+import { ArrowDown, ArrowUp, Clock3, Compass, FileAudio, Folder, FolderPlus, Heart, Library as LibraryIcon, ListMusic, Maximize2, Minus, Music2, Pencil, Play, Plus, Search, Trash2, Upload, X, Youtube } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Player, type PlayMode } from "@/components/Player"
-import { audioExtensions, emptyLibrary, filterTracks, folderName, type ImportResult, type Library, type Playlist, type Track } from "@/library"
+import { Discover } from "@/components/Discover"
+import { audioExtensions, emptyLibrary, errorMessage, filterTracks, folderName, type ImportResult, type Library, type Playlist, type TorrentProgress, type TorrentSaved, type Track } from "@/library"
 
-type View = "library" | "folders" | "playlists" | "liked" | "recent"
+type View = "library" | "folders" | "playlists" | "liked" | "recent" | "discover"
 const navigation = [
   { id: "library", label: "Biblioteca", icon: LibraryIcon },
   { id: "folders", label: "Pastas", icon: Folder },
   { id: "playlists", label: "Playlists", icon: ListMusic },
   { id: "liked", label: "Favoritos", icon: Heart },
   { id: "recent", label: "Recentes", icon: Clock3 },
+  { id: "discover", label: "Descobrir", icon: Compass },
 ] as const
 
 export default function App() {
@@ -45,14 +47,31 @@ export default function App() {
     return () => { active = false }
   }, [notify])
 
-  const { liked, recent, playlists, volume } = library
+  const { liked, recent, playlists, volume, discover } = library
   useEffect(() => {
-    if (loaded && window.desktop) void window.desktop.savePreferences({ liked, recent, playlists, volume }).catch(() => notify("Não foi possível salvar as alterações da biblioteca neste computador."))
-  }, [loaded, liked, recent, playlists, volume, notify])
+    if (loaded && window.desktop) void window.desktop.savePreferences({ liked, recent, playlists, volume, discover }).catch(() => notify("Não foi possível salvar as alterações da biblioteca neste computador."))
+  }, [loaded, liked, recent, playlists, volume, discover, notify])
 
   useEffect(() => () => { for (const track of browserTracks.current.values()) if (track.url) URL.revokeObjectURL(track.url) }, [])
 
-  const trackMap = useMemo(() => new Map(library.tracks.map((track) => [track.id, track])), [library.tracks])
+  // Torrent tracks exist only for this session: they are registered here when
+  // prepared and resolved through the same trackMap as library tracks.
+  const [discoverTracks, setDiscoverTracks] = useState<Track[]>([])
+  const discoverTracksRef = useRef(discoverTracks)
+  discoverTracksRef.current = discoverTracks
+  const registerDiscoverTracks = useCallback((tracks: Track[]) => {
+    setDiscoverTracks((existing) => {
+      const merged = new Map(existing.map((track) => [track.id, track]))
+      for (const track of tracks) merged.set(track.id, track)
+      return [...merged.values()]
+    })
+  }, [])
+
+  const trackMap = useMemo(() => {
+    const map = new Map(library.tracks.map((track) => [track.id, track]))
+    for (const track of discoverTracks) map.set(track.id, track)
+    return map
+  }, [library.tracks, discoverTracks])
   const likedIds = useMemo(() => new Set(liked), [liked])
   const selectedPlaylist = playlists.find((playlist) => playlist.id === playlistId)
   const fromIds = (ids: string[]) => ids.flatMap((id) => { const track = trackMap.get(id); return track ? [track] : [] })
@@ -77,6 +96,63 @@ export default function App() {
   }
   const toggleLike = (id: string) => setLibrary((value) => ({ ...value, liked: value.liked.includes(id) ? value.liked.filter((item) => item !== id) : [...value.liked, id] }))
   const started = useCallback((id: string) => setLibrary((value) => value.recent[0] === id ? value : { ...value, recent: [id, ...value.recent.filter((item) => item !== id)].slice(0, 100) }), [])
+
+  // Engine progress pushes (peers/percent) keyed by info hash for the UI.
+  const [torrentProgress, setTorrentProgress] = useState<Map<string, TorrentProgress>>(new Map())
+  useEffect(() => {
+    const subscribe = window.desktop?.onTorrentProgress
+    if (!subscribe) return
+    return subscribe((snapshot) => setTorrentProgress(new Map(snapshot.map((item) => [item.infoHash, item]))))
+  }, [])
+
+  // Finished saves arrive from the main process with the updated library.
+  useEffect(() => {
+    const subscribe = window.desktop?.onTorrentSaved
+    if (!subscribe) return
+    return subscribe((outcome: TorrentSaved) => {
+      const tracks = outcome.result?.tracks
+      if (tracks) setLibrary((value) => ({ ...value, tracks }))
+      notify(outcome.error ? `Não foi possível adicionar “${outcome.name}” à biblioteca: ${outcome.error}`
+        : outcome.saved ? `${outcome.saved} música(s) de “${outcome.name}” salva(s) na biblioteca.${outcome.failed ? ` ${outcome.failed} não puderam ser salvas.` : ""}`
+          : outcome.cancelled ? `Download de “${outcome.name}” cancelado; nada foi salvo.`
+            : `Não foi possível salvar “${outcome.name}”. Verifique o espaço em disco e a pasta escolhida.`)
+    })
+  }, [notify])
+
+  const saveCurrentTorrentTrack = async () => {
+    const track = trackMap.get(selection.id)
+    if (!window.desktop || track?.source !== "torrent") return
+    try {
+      const started = await window.desktop.saveTorrentTrack(track.id)
+      notify(started.queued ? `Salvando “${track.title}” em ${library.saveFolder}. Ela entra na biblioteca quando o download terminar.` : `“${track.title}” já está sendo salva.`)
+    } catch (error) {
+      notify(errorMessage(error, "Não foi possível salvar esta música na biblioteca."))
+    }
+  }
+
+  const chooseSaveFolder = async () => {
+    try {
+      const folder = await window.desktop?.chooseSaveFolder()
+      if (folder) setLibrary((value) => ({ ...value, saveFolder: folder }))
+    } catch (error) {
+      notify(errorMessage(error, "Não foi possível usar esta pasta."))
+    }
+  }
+
+  // Stream-only playback policy: leaving a torrent track releases it, and
+  // moving to a non-torrent track stops and wipes every active torrent.
+  const previousSelection = useRef("")
+  useEffect(() => {
+    const desktop = window.desktop
+    const previous = previousSelection.current
+    previousSelection.current = selection.id
+    if (!desktop || previous === selection.id) return
+    const wasTorrent = discoverTracksRef.current.some((track) => track.id === previous)
+    if (!wasTorrent) return
+    void desktop.releaseTorrent(previous)
+    if (!discoverTracksRef.current.some((track) => track.id === selection.id)) void desktop.stopTorrents()
+  }, [selection.id])
+
   const next = (ended = false) => {
     if (!queue.length) return
     const index = queue.indexOf(selection.id)
@@ -108,7 +184,7 @@ export default function App() {
       acceptImport(result)
       setYoutubeOpen(false); setYoutubeText(""); setYoutubeName("")
     } catch (error) {
-      notify(error instanceof Error && error.message ? error.message : "Não foi possível ler os links do YouTube.")
+      notify(errorMessage(error, "Não foi possível ler os links do YouTube."))
     } finally { setBusy(false) }
   }
   const importBrowserFiles = (files: FileList | null) => {
@@ -177,6 +253,7 @@ export default function App() {
       <section className="content" aria-busy={busy || !loaded}>
         {!window.desktop ? <p className="browser-notice">No navegador, os arquivos ficam disponíveis apenas nesta sessão. No desktop, sua biblioteca e playlists ficam salvas.</p> : null}
         {notice ? <div className="notice" role="status"><span>{notice}</span><Button variant="ghost" size="icon-xs" aria-label="Fechar aviso" onClick={() => setNotice("")}><X /></Button></div> : null}
+        {view === "discover" ? <Discover settings={discover} progress={torrentProgress} saveFolder={library.saveFolder} onChooseSaveFolder={() => void chooseSaveFolder()} onSaveSettings={(next) => setLibrary((value) => ({ ...value, discover: next }))} onPlay={(tracks, index) => { registerDiscoverTracks(tracks); play(tracks[index].id, tracks.map((track) => track.id)) }} notify={notify} /> : <>
         <div className="page-heading"><div><p className="eyebrow">{selectedPlaylist ? "PLAYLIST LOCAL" : "DO SEU COMPUTADOR"}</p><h1>{title}</h1><p className="page-subtitle">{busy ? "Lendo arquivos…" : !loaded ? "Carregando biblioteca…" : showFolders ? `${folders.length} pasta(s) com músicas` : showPlaylists ? `${playlists.length} playlist(s) salvas` : `${visibleTracks.length} música(s)`}</p></div>
           <div className="page-actions">{showPlaylists ? <><Button disabled={!loaded} onClick={() => openEditor()}><Plus />Nova playlist</Button>{window.desktop ? <Button variant="outline" disabled={busy || !loaded} onClick={() => void importLocal("playlist")}><Upload />Importar M3U</Button> : null}</> : !showFolders ? <><Button disabled={!visibleTracks.length} onClick={() => play(visibleTracks[0].id, visibleTracks.map((track) => track.id))}><Play fill="currentColor" />Reproduzir</Button>{selectedPlaylist ? <><Button variant="outline" onClick={() => openEditor(selectedPlaylist)}><Pencil />Editar</Button>{window.desktop ? <Button variant="outline" disabled={busy} onClick={() => void exportPlaylist()}><Upload />Exportar</Button> : null}</> : <Button variant="outline" disabled={!visibleTracks.length} onClick={() => openEditor(undefined, visibleTracks.map((track) => track.id))}><Plus />Salvar playlist</Button>}</> : null}</div>
         </div>
@@ -190,9 +267,10 @@ export default function App() {
           </div>)}
         </div> : null}
         {((showFolders && !visibleFolders.length) || (showPlaylists && !visiblePlaylists.length) || (!showFolders && !showPlaylists && !visibleTracks.length)) ? <div className="empty-state"><div className="empty-icon">{view === "liked" ? <Heart /> : view === "playlists" ? <ListMusic /> : <Music2 />}</div><h2>{query ? "Nenhum resultado encontrado" : view === "liked" ? "Guarde suas favoritas aqui" : view === "recent" ? "Sua próxima música começa aqui" : showPlaylists ? "Uma playlist para cada momento" : selectedPlaylist ? "Essa playlist ainda está vazia" : "Sua música, no seu espaço"}</h2><p>{query ? "Tente outro nome de música ou pasta." : view === "liked" ? "Use o coração ao lado de uma música para adicioná-la." : view === "recent" ? "As músicas que você ouvir aparecerão aqui." : showPlaylists ? "Crie uma seleção ou importe uma playlist local no aplicativo desktop." : selectedPlaylist ? "Clique em Editar para escolher músicas da biblioteca." : "Adicione uma pasta ou abra seus arquivos para começar. Seus arquivos continuam onde estão."}</p>{view === "library" && !query ? <Button disabled={busy || !loaded} onClick={() => void importLocal("folder")}><FolderPlus />Adicionar sua primeira pasta</Button> : null}</div> : null}
+        </>}
       </section>
     </main>
-    <Player track={trackMap.get(selection.id)} request={selection.request} liked={likedIds.has(selection.id)} volume={volume} mode={mode} onVolume={(value) => setLibrary((previous) => ({ ...previous, volume: value }))} onMode={setMode} onLike={() => toggleLike(selection.id)} onNext={next} onPrevious={() => { if (queue.length) play(queue[(queue.indexOf(selection.id) - 1 + queue.length) % queue.length]) }} onQueue={() => setQueueOpen(true)} onStarted={started} onError={notify} />
+    <Player track={trackMap.get(selection.id)} request={selection.request} liked={likedIds.has(selection.id)} volume={volume} mode={mode} torrentStatus={(() => { const track = trackMap.get(selection.id); return track?.source === "torrent" && track.infoHash ? torrentProgress.get(track.infoHash) : undefined })()} onVolume={(value) => setLibrary((previous) => ({ ...previous, volume: value }))} onMode={setMode} onLike={() => toggleLike(selection.id)} onNext={next} onPrevious={() => { if (queue.length) play(queue[(queue.indexOf(selection.id) - 1 + queue.length) % queue.length]) }} onQueue={() => setQueueOpen(true)} onStarted={started} onError={notify} onSave={() => void saveCurrentTorrentTrack()} />
     <Sheet open={queueOpen} onOpenChange={setQueueOpen}><SheetContent className="local-sheet"><SheetHeader><SheetTitle>Fila de reprodução</SheetTitle><SheetDescription>{queue.length} música(s) · independente das playlists salvas</SheetDescription></SheetHeader><div className="sheet-actions"><Button variant="outline" disabled={!queue.length} onClick={() => { setQueueOpen(false); openEditor(undefined, queue) }}><Plus />Salvar playlist</Button><Button variant="ghost" disabled={!queue.length} onClick={() => { setQueue([]); setSelection((value) => ({ id: "", request: value.request + 1 })) }}><Trash2 />Limpar fila</Button></div><div className="sheet-list">{fromIds(queue).map((track) => <div key={track.id} className="queue-row"><button className={selection.id === track.id ? "accent" : ""} onClick={() => play(track.id)}><Music2 size={16} /><span>{track.title}</span></button><Button variant="ghost" size="icon-xs" aria-label={`Remover ${track.title} da fila`} onClick={() => { setQueue((ids) => ids.filter((id) => id !== track.id)); if (selection.id === track.id) setSelection((value) => ({ id: "", request: value.request + 1 })) }}><X /></Button></div>)}{!queue.length ? <p className="muted">Reproduza uma música para começar uma fila.</p> : null}</div></SheetContent></Sheet>
     <Sheet open={youtubeOpen} onOpenChange={setYoutubeOpen}><SheetContent className="local-sheet"><SheetHeader><SheetTitle>Adicionar do YouTube</SheetTitle><SheetDescription>Cole links de vídeos ou playlists do YouTube, um por linha. O yt-dlp lê os metadados; nenhum vídeo é baixado e o áudio é transmitido na hora da reprodução.</SheetDescription></SheetHeader>{youtubeOpen ? <form className="playlist-form" onSubmit={(event) => { event.preventDefault(); void addYoutube() }}><label>Nome da playlist (opcional)<Input maxLength={120} value={youtubeName} onChange={(event) => setYoutubeName(event.target.value)} placeholder="Usado quando o envio tem vários vídeos" /></label><label>Links<textarea required rows={8} className="youtube-links" aria-label="Links do YouTube" value={youtubeText} onChange={(event) => setYoutubeText(event.target.value)} placeholder={"https://www.youtube.com/watch?v=…\nhttps://youtu.be/…\nhttps://www.youtube.com/playlist?list=…"} /></label><p className="muted">Requer o yt-dlp instalado no sistema.</p><div className="sheet-actions"><Button type="submit" disabled={busy || !youtubeText.trim()}>Adicionar</Button><Button type="button" variant="ghost" onClick={() => setYoutubeOpen(false)}>Cancelar</Button></div></form> : null}</SheetContent></Sheet>
     <Sheet open={!!editor} onOpenChange={(open) => { if (!open) setEditor(null) }}><SheetContent className="local-sheet"><SheetHeader><SheetTitle>{playlists.some((item) => item.id === editor?.id) ? "Editar playlist" : "Nova playlist"}</SheetTitle><SheetDescription>Escolha músicas da sua biblioteca. Nenhum arquivo será copiado.</SheetDescription></SheetHeader>{editor ? <form className="playlist-form" onSubmit={(event) => { event.preventDefault(); savePlaylist() }}><label>Nome<Input autoFocus required maxLength={120} value={editor.name} onChange={(event) => setEditor({ ...editor, name: event.target.value })} placeholder="Minha playlist" /></label><Input aria-label="Filtrar músicas da playlist" placeholder="Filtrar músicas…" value={editorSearch} onChange={(event) => setEditorSearch(event.target.value)} /><span className="muted">{editor.trackIds.length} selecionada(s)</span><div className="playlist-choices">{filterTracks(library.tracks, editorSearch).map((track) => <label key={track.id}><input type="checkbox" checked={editor.trackIds.includes(track.id)} onChange={(event) => setEditor({ ...editor, trackIds: event.target.checked ? [...editor.trackIds, track.id] : editor.trackIds.filter((id) => id !== track.id) })} /><span>{track.title}</span></label>)}{!library.tracks.length ? <p className="muted">Adicione músicas à biblioteca para preencher sua playlist.</p> : null}</div><div className="sheet-actions"><Button type="submit" disabled={!editor.name.trim()}>Salvar playlist</Button><Button type="button" variant="ghost" onClick={() => setEditor(null)}>Cancelar</Button></div>{playlists.some((item) => item.id === editor.id) ? <Button type="button" variant="destructive" onClick={() => { setLibrary((value) => ({ ...value, playlists: value.playlists.filter((item) => item.id !== editor.id) })); setEditor(null); setPlaylistId(""); notify("Playlist removida. Os arquivos de música foram mantidos.") }}><Trash2 />Excluir playlist</Button> : null}</form> : null}</SheetContent></Sheet>

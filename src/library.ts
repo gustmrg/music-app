@@ -1,17 +1,44 @@
-export type Track = { id: string; path: string; title: string; folder: string; format: string; url?: string; source?: "youtube" }
+export type Track = { id: string; path: string; title: string; folder: string; format: string; url?: string; source?: "youtube" | "torrent"; infoHash?: string }
 export type Playlist = { id: string; name: string; trackIds: string[] }
-export type Preferences = { liked: string[]; recent: string[]; playlists: Playlist[]; volume: number }
-export type Library = Preferences & { tracks: Track[] }
+export type DiscoverProvider = "prowlarr" | "torznab"
+export type DiscoverSettings = { provider: DiscoverProvider; url: string; apiKey: string; categories: string; noticeAccepted: boolean }
+export type Preferences = { liked: string[]; recent: string[]; playlists: Playlist[]; volume: number; discover: DiscoverSettings }
+export type Library = Preferences & { tracks: Track[]; saveFolder: string }
 export type ImportResult = { tracks: Track[]; imported: string[]; skipped: number; playlist?: Playlist }
-export const emptyLibrary: Library = { tracks: [], liked: [], recent: [], playlists: [], volume: 0.7 }
+export type DiscoverResult = { title: string; artist: string; album: string; year: string; format: string; display: string; size: number; seeders: number; indexer: string; publishedAt: string; source: string }
+export type TorrentFile = { index: number; name: string; length: number; isAudio: boolean }
+export type TorrentExpansion = { infoHash: string; name: string; files: TorrentFile[] }
+export type PreparedTorrentTrack = { id: string; infoHash: string; name: string; fileName: string; length: number; url: string }
+export type SaveProgress = { files: number; done: number; progress: number }
+export type TorrentProgress = { infoHash: string; name: string; progress: number; peers: number; speed: number; saving?: SaveProgress }
+export type SaveStarted = { infoHash: string; name: string; queued: number; pending: number }
+export type TorrentSaved = { name: string; saved: number; failed: number; cancelled: boolean; result: ImportResult | null; error?: string }
+export const emptyLibrary: Library = { tracks: [], liked: [], recent: [], playlists: [], volume: 0.7, discover: { provider: "torznab", url: "", apiKey: "", categories: "3000", noticeAccepted: false }, saveFolder: "" }
 export const audioExtensions = /\.(mp3|wav|flac|ogg|opus|m4a|aac|webm)$/i
 export const folderName = (folder: string) => folder.split(/[\\/]/).filter(Boolean).pop() || "Arquivos avulsos"
+// ipcRenderer.invoke wraps main-process errors as
+// "Error invoking remote method 'x': Error: message"; show only the message.
+export function errorMessage(error: unknown, fallback: string) {
+  const message = error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']*': (?:[A-Za-z]*Error: )?/, "").trim() : ""
+  return message || fallback
+}
 export function formatTime(seconds: number) {
   if (!Number.isFinite(seconds) || seconds < 0) return "0:00"
   return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`
+}
+export function formatSize(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return ""
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
 }
 export function filterTracks(tracks: Track[], search: string) {
   const normalize = (text: string) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase()
   const query = normalize(search.trim())
   return query ? tracks.filter((track) => normalize(`${track.title} ${track.path}`).includes(query)) : tracks
+}
+// Torrent files usually arrive as "01 - Name.flac" or "01_Name.flac".
+export function cleanTrackTitle(fileName: string) {
+  const withoutExtension = fileName.replace(audioExtensions, "")
+  return withoutExtension.replace(/^\s*\d{1,3}\s*[-_.\s]+\s*/, "").replace(/_/g, " ").replace(/\s{2,}/g, " ").trim() || withoutExtension
 }
