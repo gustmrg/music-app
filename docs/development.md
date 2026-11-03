@@ -1,6 +1,6 @@
 # Development
 
-Use Node.js 22 or later and npm. The project keeps `package-lock.json` as its only lockfile.
+Use Node.js 22.12 or later and npm. CI pins Node.js 24.22.1, the version bundled with Electron 45, so tests run on the same runtime as the main process. The project keeps `package-lock.json` as its only lockfile.
 
 ```bash
 npm install
