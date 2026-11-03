@@ -1,7 +1,9 @@
 export type Track = { id: string; path: string; title: string; folder: string; format: string; url?: string; source?: "youtube" | "torrent"; infoHash?: string }
 export type Playlist = { id: string; name: string; trackIds: string[] }
 export type DiscoverProvider = "prowlarr" | "torznab"
-export type DiscoverSettings = { provider: DiscoverProvider; url: string; apiKey: string; categories: string; noticeAccepted: boolean }
+export type DiscoverConnection = { url: string; apiKey: string; categories: string }
+// Top-level fields are the active provider's; profiles keep each provider's own.
+export type DiscoverSettings = DiscoverConnection & { provider: DiscoverProvider; profiles: Partial<Record<DiscoverProvider, DiscoverConnection>>; noticeAccepted: boolean }
 export type Preferences = { liked: string[]; recent: string[]; playlists: Playlist[]; volume: number; discover: DiscoverSettings }
 export type Library = Preferences & { tracks: Track[]; saveFolder: string }
 export type ImportResult = { tracks: Track[]; imported: string[]; skipped: number; playlist?: Playlist }
@@ -13,7 +15,7 @@ export type SaveProgress = { files: number; done: number; progress: number }
 export type TorrentProgress = { infoHash: string; name: string; progress: number; peers: number; speed: number; saving?: SaveProgress }
 export type SaveStarted = { infoHash: string; name: string; queued: number; pending: number }
 export type TorrentSaved = { name: string; saved: number; failed: number; cancelled: boolean; result: ImportResult | null; error?: string }
-export const emptyLibrary: Library = { tracks: [], liked: [], recent: [], playlists: [], volume: 0.7, discover: { provider: "torznab", url: "", apiKey: "", categories: "3000", noticeAccepted: false }, saveFolder: "" }
+export const emptyLibrary: Library = { tracks: [], liked: [], recent: [], playlists: [], volume: 0.7, discover: { provider: "torznab", url: "", apiKey: "", categories: "3000", profiles: {}, noticeAccepted: false }, saveFolder: "" }
 export const audioExtensions = /\.(mp3|wav|flac|ogg|opus|m4a|aac|webm)$/i
 export const folderName = (folder: string) => folder.split(/[\\/]/).filter(Boolean).pop() || "Arquivos avulsos"
 // ipcRenderer.invoke wraps main-process errors as
