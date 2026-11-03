@@ -313,7 +313,7 @@ export default function App() {
       <nav aria-label="Navegação principal">{navigationGroups.map((group) => <div key={group.label} className="nav-group" role="group" aria-labelledby={`nav-${group.label}`}><div id={`nav-${group.label}`} className="sidebar-label">{group.label}</div>{group.items.map(({ id, label, icon: Icon }) => <Button key={id} variant="ghost" className={`nav-item ${view === id ? "active" : ""}`} aria-current={view === id ? "page" : undefined} onClick={() => navigate(id)}><Icon size={18} />{label}{id === "library" ? <span className="nav-count">{library.tracks.length}</span> : null}</Button>)}</div>)}</nav>
       <div className="sidebar-label playlist-label"><span>SUAS PLAYLISTS</span><Button variant="ghost" size="icon-xs" aria-label="Criar playlist" disabled={!loaded} onClick={() => openEditor()}><Plus size={15} /></Button></div>
       <div className="sidebar-playlists">{playlists.length ? playlists.map((playlist) => <button key={playlist.id} className={`sidebar-playlist ${playlistId === playlist.id ? "selected" : ""}`} onClick={() => { navigate("playlists"); setPlaylistId(playlist.id) }}><ListMusic size={16} /><span>{playlist.name}</span></button>) : <p className="sidebar-hint">Suas seleções, do seu jeito.</p>}</div>
-      <div className="sidebar-bottom"><span className="status-dot" />{window.desktop ? "Biblioteca local" : "Prévia no navegador"}<small>Sem conta. Sem streaming.</small></div>
+      <div className="sidebar-bottom"><span className="status-dot" />{window.desktop ? "Biblioteca local" : "Prévia no navegador"}<small>Sem conta. Sem telemetria.</small></div>
     </aside>
     <main className="main">
       <header className="topbar window-drag" onDoubleClick={() => window.desktop?.toggleMaximize()}>
