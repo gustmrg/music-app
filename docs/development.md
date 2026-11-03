@@ -21,6 +21,7 @@ The packaging targets are DMG, NSIS, AppImage, and deb. The app's internal ident
   ci.yml             typecheck, tests, and build on PRs and main
   release.yml        version, packaging, and release publishing
 docs/                detailed documentation
+  adr/               architecture decision records
 electron/
   main.cjs           window, native pickers, IPC, and audio protocol
   preload.cjs        restricted API exposed to the interface

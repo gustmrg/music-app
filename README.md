@@ -48,6 +48,7 @@ Requires Node.js 22 or later. See [Development](docs/development.md) for the pro
 - [Usage](docs/usage.md): library, albums, playlists, Discover, YouTube, and current limits.
 - [Development](docs/development.md): scripts, project layout, and security.
 - [Releases](docs/releasing.md): how to publish a version.
+- [Decisions](docs/adr/README.md): architecture decision records.
 
 The documentation is in English. Only the README is also available in Portuguese.
 

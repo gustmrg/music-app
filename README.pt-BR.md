@@ -48,6 +48,7 @@ Requer Node.js 22 ou mais recente. Veja [Development](docs/development.md) para 
 - [Usage](docs/usage.md): biblioteca, álbuns, playlists, Descobrir, YouTube e limites atuais.
 - [Development](docs/development.md): scripts, estrutura do projeto e segurança.
 - [Releases](docs/releasing.md): como publicar uma versão.
+- [Decisions](docs/adr/README.md): registros de decisões de arquitetura.
 
 A documentação está em inglês. Só o README também está em português.
 
