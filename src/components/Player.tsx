@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react"
 import { Download, Heart, ListMusic, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, Volume2 } from "lucide-react"
 import { errorMessage, formatTime, trackArtist, type Track } from "@/library"
 import { Button } from "@/components/ui/button"
@@ -10,14 +10,17 @@ const labels = { order: "Em ordem", repeat: "Repetir fila", one: "Repetir músic
 // A live that drops is reopened this many times before giving up.
 const LIVE_RETRIES = 3
 
+export type PlayerControls = { toggle: () => void }
+
 type Props = {
+  ref?: Ref<PlayerControls>; onPlayingChange: (playing: boolean) => void
   track: Track | undefined; request: number; liked: boolean; volume: number; mode: PlayMode; torrentStatus?: { progress: number; peers: number }
   onVolume: (value: number) => void; onMode: (mode: PlayMode) => void; onLike: () => void
   onNext: (ended?: boolean) => void; onPrevious: () => void; onQueue: () => void
   onStarted: (id: string) => void; onError: (message: string) => void; onSave?: () => void
 }
 
-export function Player({ track, request, liked, volume, mode, torrentStatus, onVolume, onMode, onLike, onNext, onPrevious, onQueue, onStarted, onError, onSave }: Props) {
+export function Player({ ref, onPlayingChange, track, request, liked, volume, mode, torrentStatus, onVolume, onMode, onLike, onNext, onPrevious, onQueue, onStarted, onError, onSave }: Props) {
   const audio = useRef<HTMLAudioElement>(null)
   const [playing, setPlaying] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -90,9 +93,13 @@ export function Player({ track, request, liked, volume, mode, torrentStatus, onV
     else audio.current?.pause()
   }
 
+  useImperativeHandle(ref, () => ({ toggle: () => { if (resolving) return; if (playing || connecting) pause(); else play() } }))
+  useEffect(() => { onPlayingChange(playing || connecting) }, [playing, connecting, onPlayingChange])
+
   useEffect(() => {
     const element = audio.current
     if (!element) return
+    setPlaying(false)
     setProgress(0)
     setDuration(0)
     setLive(false)
@@ -155,7 +162,7 @@ export function Player({ track, request, liked, volume, mode, torrentStatus, onV
       onEnded={() => {
         // A live never ends on its own: reconnect instead of moving on.
         if (live) reconnectLive()
-        else if (mode === "one") { if (audio.current) audio.current.currentTime = 0; play() } else onNext(true)
+        else if (mode === "one") { if (audio.current) audio.current.currentTime = 0; play() } else { setPlaying(false); onNext(true) }
       }}
     />
     <div className="player-track">

@@ -5,7 +5,7 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import os from "node:os"
 import { pathToFileURL } from "node:url"
-import { LocalLibrary, playlistPaths } from "./library.ts"
+import { LocalLibrary, cleanPreferences, playlistPaths } from "./library.ts"
 import { audioResponse } from "./audio.ts"
 
 // Asserts that a value exists and narrows its type for the rest of the test.
@@ -186,4 +186,13 @@ test("only YouTube tracks can be marked live", async (t) => {
   const { imported } = await library.addFolder(music)
   assert.equal(await library.setLive(imported[0], true), false)
   assert.equal(present(library.tracks.get(imported[0])).isLive, undefined)
+})
+
+
+test("restores the display mode and defaults older or invalid preferences to list", async (t) => {
+  const { library } = await fixture(t)
+  assert.equal(cleanPreferences({}, []).viewMode, "list")
+  assert.equal(cleanPreferences({ viewMode: "unknown" }, []).viewMode, "list")
+  await library.savePreferences({ ...library.preferences, viewMode: "grid" })
+  assert.equal((await new LocalLibrary(library.storeFile).load()).viewMode, "grid")
 })
