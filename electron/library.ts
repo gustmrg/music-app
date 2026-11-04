@@ -42,6 +42,7 @@ export function cleanPreferences(input: unknown, tracks: Track[]): Preferences {
     liked: references(value?.liked),
     recent: references(value?.recent).slice(0, 100),
     volume: Number.isFinite(value?.volume) ? Math.max(0, Math.min(1, value.volume)) : 0.7,
+    viewMode: value.viewMode === "grid" ? "grid" : "list",
     discover: cleanDiscoverSettings(value?.discover),
     tagEdits: Object.fromEntries(Object.entries(value?.tagEdits && typeof value.tagEdits === "object" ? value.tagEdits : {})
       .filter(([id]) => ids.has(id)).map(([id, edit]): [string, TagEdit] => [id, cleanTagEdit(edit)]).filter(([, edit]) => Object.keys(edit).length)),
