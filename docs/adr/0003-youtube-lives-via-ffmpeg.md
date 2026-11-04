@@ -28,7 +28,7 @@ A proof of concept on 2026-11-02 produced valid AAC (44.1 kHz, stereo) from the 
 
 - ffmpeg becomes a runtime dependency for lives, next to yt-dlp. When it is missing, lives show a clear error and everything else keeps working.
 - The renderer needs no CSP or CORS changes, because it never contacts Google directly.
-- Lives have no duration or seek, so the player gets a live mode with a "LIVE" badge and no seek bar, and it reconnects instead of skipping to the next track.
+- Lives have no duration or seek. The player keeps a read-only progress bar with elapsed playback and buffered audio for the current connection; its timeline grows as audio arrives, and a "LIVE" badge sits beside it. Reopening the stream resets that timeline. It reconnects instead of skipping to the next track.
 - The same yt-dlp and ffmpeg pipeline can later record or save audio to a file.
 
 ## Alternatives considered
