@@ -242,3 +242,6 @@ h1 { margin: 0; font-size: 32px; line-height: 1.2; letter-spacing: -1px; font-we
 .spin { animation: spin 1s linear infinite; }
 .spin.big { margin-bottom: 10px; }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+.discover-chevron { margin-left: auto; flex-shrink: 0; }
+.discover-chevron.expanded { transform: rotate(180deg); }

@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Compass, Download, FolderOpen, ListPlus, Loader2, Play, Search, Settings2, ShieldAlert, Square } from "lucide-react"
+import { ChevronDown, Compass, Download, FolderOpen, ListPlus, Loader2, Play, Search, Settings2, ShieldAlert, Square } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
@@ -33,6 +33,7 @@ export function Discover({ settings, progress, saveFolder, onChooseSaveFolder, o
   const [searching, setSearching] = useState(false)
   const [searched, setSearched] = useState(false)
   const [expanded, setExpanded] = useState<Record<string, TorrentExpansion | "loading" | "error">>({})
+  const [openResults, setOpenResults] = useState<Set<string>>(new Set())
   const [preparing, setPreparing] = useState("")
   const [requesting, setRequesting] = useState("")
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -46,13 +47,17 @@ export function Discover({ settings, progress, saveFolder, onChooseSaveFolder, o
       setResults(results)
       setSearched(true)
       setExpanded({})
+      setOpenResults(new Set())
     } catch (error) {
       notify(errorMessage(error, "Não foi possível buscar no indexador."))
     } finally { setSearching(false) }
   }
 
   const expand = async (result: DiscoverResult) => {
-    if (!window.desktop || expanded[result.source]) return
+    if (!window.desktop) return
+    const source = result.source
+    setOpenResults((value) => { const next = new Set(value); if (next.has(source)) next.delete(source); else next.add(source); return next })
+    if (openResults.has(source) || (expanded[source] && expanded[source] !== "error")) return
     setExpanded((value) => ({ ...value, [result.source]: "loading" }))
     try {
       const expansion = await window.desktop.expandTorrent(result.source)
@@ -122,17 +127,19 @@ export function Discover({ settings, progress, saveFolder, onChooseSaveFolder, o
             : !searched ? <div className="empty-state"><div className="empty-icon"><Compass /></div><h2>O que ouvir hoje?</h2><p>Busque um artista ou álbum; os resultados vêm do seu indexador e tocam por stream na hora. Salve na biblioteca o que quiser manter.</p></div>
               : <div className="discover-results" role="list" aria-label="Resultados da busca">
                 {results.map((result) => {
-                  const state = expanded[result.source]
+                  const isOpen = openResults.has(result.source)
+                  const state = isOpen ? expanded[result.source] : undefined
                   const expansion = state && state !== "loading" && state !== "error" ? state : null
                   const torrentProgress = expansion ? progress.get(expansion.infoHash) : undefined
                   const audioFiles = expansion?.files.filter((file) => file.isAudio) ?? []
                   return <div key={result.source} className="discover-result" role="listitem">
-                    <button className="discover-row" onClick={() => void expand(result)}>
+                    <button className="discover-row" aria-expanded={isOpen} onClick={() => void expand(result)}>
                       <span className="discover-format">{result.format || "AUDIO"}</span>
                       <span className="discover-meta">
                         <strong>{result.display}</strong>
                         <small>{[result.year, result.indexer, formatSize(result.size), result.seeders >= 0 ? `${result.seeders} seeder(s)` : "seeders desconhecidos"].filter(Boolean).join(" · ")}</small>
                       </span>
+                      <ChevronDown className={`discover-chevron ${isOpen ? "expanded" : ""}`} size={16} />
                     </button>
                     {state === "loading" ? <div className="discover-files muted"><Loader2 className="spin" size={14} /> Lendo metadados do torrent…</div> : null}
                     {state === "error" ? <div className="discover-files muted">Não foi possível ler os metadados. Tente novamente.</div> : null}
