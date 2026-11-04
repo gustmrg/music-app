@@ -15,7 +15,7 @@ export type DiscoverSettings = DiscoverConnection & { provider: DiscoverProvider
 export type DiscoverResult = { title: string; artist: string; album: string; year: string; format: string; display: string; size: number; seeders: number; indexer: string; publishedAt: string; source: string }
 export type DiscoverTest = { ok: true; hint: string }
 
-export type Preferences = { liked: string[]; recent: string[]; playlists: Playlist[]; volume: number; discover: DiscoverSettings; tagEdits: Record<string, TagEdit> }
+export type Preferences = { liked: string[]; recent: string[]; playlists: Playlist[]; volume: number; viewMode: "list" | "grid"; discover: DiscoverSettings; tagEdits: Record<string, TagEdit> }
 export type Library = Preferences & { tracks: Track[]; saveFolder: string }
 export type ImportResult = { tracks: Track[]; imported: string[]; skipped: number; playlist?: Playlist }
 

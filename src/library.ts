@@ -2,7 +2,7 @@ import type { Library, TagEdit, Track } from "../shared/types"
 
 export type { TrackTags, Track, TagEdit, Playlist, DiscoverProvider, DiscoverConnection, DiscoverSettings, Preferences, Library, ImportResult, DiscoverResult, TorrentFile, TorrentExpansion, PreparedTorrentTrack, SaveProgress, TorrentProgress, SaveStarted, TorrentSaved } from "../shared/types"
 export type Album = { key: string; title: string; artist: string; year?: number; cover?: string; trackIds: string[] }
-export const emptyLibrary: Library = { tracks: [], liked: [], recent: [], playlists: [], tagEdits: {}, volume: 0.7, discover: { provider: "torznab", url: "", apiKey: "", categories: "3000", profiles: {}, noticeAccepted: false }, saveFolder: "" }
+export const emptyLibrary: Library = { tracks: [], liked: [], recent: [], playlists: [], tagEdits: {}, volume: 0.7, viewMode: "list", discover: { provider: "torznab", url: "", apiKey: "", categories: "3000", profiles: {}, noticeAccepted: false }, saveFolder: "" }
 export const audioExtensions = /\.(mp3|wav|flac|ogg|opus|m4a|aac|webm)$/i
 export const folderName = (folder: string) => folder.split(/[\\/]/).filter(Boolean).pop() || "Arquivos avulsos"
 // ipcRenderer.invoke wraps main-process errors as

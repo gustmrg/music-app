@@ -1,6 +1,7 @@
 {
   "name": "cloud-music-desktop",
-  "version": "0.1.0",
+  "desktopName": "cloud-music-desktop.desktop",
+  "version": "0.2.0",
   "description": "Desktop music player for your local files, torrents from your own indexer, and YouTube.",
   "homepage": "https://github.com/gustmrg/music-app#readme",
   "author": "Gustavo Miranda",
@@ -50,6 +51,7 @@
   "build": {
     "appId": "com.cloudmusic.desktop",
     "productName": "Local Music",
+    "icon": "build/icon.png",
     "artifactName": "local-music-${version}-${os}-${arch}.${ext}",
     "files": [
       "dist/**/*",
@@ -67,6 +69,7 @@
       "target": "nsis"
     },
     "linux": {
+      "syncDesktopName": true,
       "target": [
         "AppImage",
         "deb"
