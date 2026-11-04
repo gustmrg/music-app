@@ -1,7 +1,7 @@
 {
   "name": "cloud-music-desktop",
   "desktopName": "cloud-music-desktop.desktop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Desktop music player for your local files, torrents from your own indexer, and YouTube.",
   "homepage": "https://github.com/gustmrg/music-app#readme",
   "author": "Gustavo Miranda",
