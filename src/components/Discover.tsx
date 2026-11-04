@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { ChevronDown, Compass, Download, ListPlus, Loader2, Play, Search, ShieldAlert, Square } from "lucide-react"
+import { ChevronDown, Compass, Download, ListPlus, Loader2, Play, RefreshCw, Search, ShieldAlert, Square } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cleanTrackTitle, errorMessage, formatSize, type DiscoverResult, type DiscoverSettings, type TorrentExpansion, type TorrentProgress, type Track } from "@/library"
@@ -10,6 +10,7 @@ type Props = {
   saveFolder: string
   onSaveSettings: (settings: DiscoverSettings) => void
   onPlay: (tracks: Track[], index: number) => void
+  onStopped: (infoHash?: string) => void
   notify: (message: string) => void
 }
 
@@ -24,7 +25,7 @@ const toTrack = (prepared: { id: string; infoHash: string; name: string; fileNam
   url: prepared.url,
 })
 
-export function Discover({ settings, progress, saveFolder, onSaveSettings, onPlay, notify }: Props) {
+export function Discover({ settings, progress, saveFolder, onSaveSettings, onPlay, onStopped, notify }: Props) {
   const [query, setQuery] = useState("")
   const [results, setResults] = useState<DiscoverResult[]>([])
   const [searching, setSearching] = useState(false)
@@ -33,17 +34,18 @@ export function Discover({ settings, progress, saveFolder, onSaveSettings, onPla
   const [openResults, setOpenResults] = useState<Set<string>>(new Set())
   const [preparing, setPreparing] = useState("")
   const [requesting, setRequesting] = useState("")
+  const [stopping, setStopping] = useState("")
 
   const search = async () => {
     if (!window.desktop || !query.trim() || searching) return
     setSearching(true)
-    setSearched(false)
     try {
       const { results } = await window.desktop.searchDiscover(query)
       setResults(results)
       setSearched(true)
-      setExpanded({})
-      setOpenResults(new Set())
+      const sources = new Set(results.map((result) => result.source))
+      setExpanded((value) => Object.fromEntries(Object.entries(value).filter(([source]) => sources.has(source))))
+      setOpenResults((value) => new Set([...value].filter((source) => sources.has(source))))
     } catch (error) {
       notify(errorMessage(error, "Não foi possível buscar no indexador."))
     } finally { setSearching(false) }
@@ -99,8 +101,21 @@ export function Discover({ settings, progress, saveFolder, onSaveSettings, onPla
     } finally { setRequesting("") }
   }
 
+  const stop = async (infoHash?: string) => {
+    if (!window.desktop || stopping) return
+    setStopping(infoHash ?? "all")
+    try {
+      if (infoHash) await window.desktop.stopTorrent(infoHash)
+      else await window.desktop.stopTorrents(true)
+      onStopped(infoHash)
+      notify(infoHash ? "Download deste álbum interrompido. Músicas já salvas continuam na biblioteca." : "Todos os torrents e downloads foram interrompidos. Músicas já salvas continuam na biblioteca.")
+    } catch (error) {
+      notify(errorMessage(error, "Não foi possível interromper o download."))
+    } finally { setStopping("") }
+  }
+
   const configured = Boolean(settings.url && settings.apiKey)
-  const active = [...progress.values()].filter((item) => item.progress < 1)
+  const active = [...progress.values()].filter((item) => item.progress < 1 || item.saving)
 
   return <div className="discover">
     {!settings.noticeAccepted && configured ? <div className="notice discover-notice" role="status"><ShieldAlert size={16} /><span>Streams por torrent baixam <strong>e enviam</strong> partes do arquivo com outras pessoas da rede. A legalidade varia por país e por conteúdo; use uma VPN se isso importa para você. Nada é mantido após a reprodução, a menos que você salve na biblioteca.</span><Button variant="ghost" size="icon-xs" aria-label="Entendi" onClick={() => onSaveSettings({ ...settings, noticeAccepted: true })}>✓</Button></div> : null}
@@ -108,10 +123,11 @@ export function Discover({ settings, progress, saveFolder, onSaveSettings, onPla
       <form className="discover-search" onSubmit={(event) => { event.preventDefault(); void search() }}>
         <label className="search-box"><Search size={17} /><Input aria-label="Buscar torrents de música" placeholder={configured ? "Buscar artista, álbum ou música…" : "Configure um indexador para buscar"} value={query} disabled={!configured || searching} onChange={(event) => setQuery(event.target.value)} /></label>
         <Button type="submit" disabled={!configured || searching || !query.trim()}>{searching ? <Loader2 className="spin" size={16} /> : <Search size={16} />}Buscar</Button>
+        <Button type="button" variant="outline" size="icon" aria-label="Atualizar resultados" title="Pesquisar novamente com o texto atual" disabled={!configured || searching || !query.trim()} onClick={() => void search()}><RefreshCw size={16} /></Button>
       </form>
       <div className="discover-actions">
         {active.length ? <span className="muted discover-live">{active.length} torrent(s) baixando · {Math.round(active[0].progress * 100)}%</span> : null}
-        {active.length ? <Button variant="outline" onClick={() => { void window.desktop?.stopTorrents(true); notify("Torrents e downloads interrompidos; cache removido. Músicas já salvas continuam na biblioteca.") }}><Square size={14} />Parar torrents</Button> : null}
+        {active.length ? <Button variant="outline" disabled={!!stopping} onClick={() => void stop()}><Square size={14} />Parar todos os torrents</Button> : null}
       </div>
     </div>
 
@@ -140,7 +156,7 @@ export function Discover({ settings, progress, saveFolder, onSaveSettings, onPla
                     {state === "error" ? <div className="discover-files muted">Não foi possível ler os metadados. Tente novamente.</div> : null}
                     {expansion ? <div className="discover-files">
                       {torrentProgress ? <div className="discover-progress muted">{torrentProgress.peers} par(es) · {Math.round(torrentProgress.progress * 100)}% baixado{torrentProgress.saving ? ` · salvando ${torrentProgress.saving.done}/${torrentProgress.saving.files} (${Math.round(torrentProgress.saving.progress * 100)}%)` : ""}</div> : null}
-                      {audioFiles.length ? <><div className="discover-file-actions"><Button variant="outline" size="sm" disabled={preparing === result.source} onClick={() => void play(result, audioFiles[0].index)}><ListPlus size={14} />Tocar álbum</Button><Button variant="outline" size="sm" disabled={requesting === result.source} onClick={() => void save(result, audioFiles.map((file) => file.index), "o álbum")}>{requesting === result.source ? <Loader2 className="spin" size={14} /> : <Download size={14} />}Salvar álbum</Button></div>
+                      {audioFiles.length ? <><div className="discover-file-actions"><Button variant="outline" size="sm" disabled={preparing === result.source} onClick={() => void play(result, audioFiles[0].index)}><ListPlus size={14} />Tocar álbum</Button><Button variant="outline" size="sm" disabled={requesting === result.source} onClick={() => void save(result, audioFiles.map((file) => file.index), "o álbum")}>{requesting === result.source ? <Loader2 className="spin" size={14} /> : <Download size={14} />}Salvar álbum</Button>{torrentProgress && (torrentProgress.progress < 1 || torrentProgress.saving) ? <Button className="discover-stop" variant="outline" size="sm" disabled={!!stopping || preparing === result.source || requesting === result.source} onClick={() => void stop(expansion.infoHash)}><Square size={14} />Parar download</Button> : null}</div>
                         {audioFiles.map((file) => <div key={file.index} className="discover-file">
                           <button className="discover-file-play" disabled={preparing === result.source} onClick={() => void play(result, file.index)} aria-label={`Reproduzir ${file.name}`}><Play size={13} fill="currentColor" /></button>
                           <span className="discover-file-name" title={file.name}>{cleanTrackTitle(file.name)}</span>

@@ -150,6 +150,7 @@ function fakeTorrent(infoHash: string, name: string, entries: [relative: string,
     length: Buffer.byteLength(content),
     downloaded: done ? Buffer.byteLength(content) : 0,
     done,
+    select() {},
     createReadStream: () => Readable.from([Buffer.from(content)]),
   }))
   return { infoHash, name, files, destroyed: false, progress: 0, numPeers: 0, downloadSpeed: 0, destroy(this: { destroyed: boolean }) { this.destroyed = true } } as unknown as Torrent
@@ -271,4 +272,45 @@ test("resolveSource rejects pages, errors, and redirects to other schemes", asyn
 test("addTorrent refuses download links that the indexer settings do not vouch for", async (t) => {
   const { engine } = await engineFixture(t)
   await assert.rejects(engine.addTorrent("http://evil.example/download?x"), /não suportada/)
+})
+
+test("expanding opens torrents without selecting content; saving selects only requested audio", async (t) => {
+  const { engine, saveRoot } = await engineFixture(t)
+  const torrent = fakeTorrent("e".repeat(40), "Metadata", [["one.mp3", "one", false], ["two.mp3", "two", false], ["cover.jpg", "img", false]])
+  const selected: number[] = []
+  torrent.files.forEach((file, index) => { file.select = () => { selected.push(index) } })
+  let options: unknown
+  engine.client = {
+    add(_input: string | Buffer, opts: { path: string; deselect: boolean }, ready: (torrent: Torrent) => void) {
+      options = opts
+      queueMicrotask(() => ready(torrent))
+      return Object.assign(new EventEmitter(), torrent)
+    },
+  } as unknown as NonNullable<TorrentEngine["client"]>
+  const source = `magnet:?xt=urn:btih:${torrent.infoHash}`
+  assert.equal((await engine.expand(source)).files.length, 3)
+  assert.deepEqual(options, { path: engine.cachePath, deselect: true })
+  assert.deepEqual(selected, [])
+  await engine.prepare(source, 0)
+  assert.deepEqual(selected, []) // Playback selects byte ranges when the audio stream opens.
+  await engine.save(source, [1, 2], saveRoot)
+  assert.deepEqual(selected, [1])
+})
+
+test("stopping one album cancels its save while another album keeps downloading", async (t) => {
+  const { engine, saveRoot, outcomes, add } = await engineFixture(t)
+  const first = add(fakeTorrent("1".repeat(40), "First", [["one.mp3", "one", false]]))
+  const second = add(fakeTorrent("2".repeat(40), "Second", [["two.mp3", "two", false]]))
+  engine.startSave(first, [0], saveRoot)
+  engine.startSave(second, [0], saveRoot)
+  engine.stop(first.infoHash)
+  assert.equal(first.destroyed, true)
+  assert.equal(second.destroyed, false)
+  assert.equal(engine.saves.has(second.infoHash), true)
+  assert.equal(outcomes.length, 1)
+  assert.equal(outcomes[0].infoHash, first.infoHash)
+  assert.equal(outcomes[0].cancelled, true)
+  await engine.stopAll({ includeSaves: true })
+  assert.equal(second.destroyed, true)
+  assert.equal(outcomes.length, 2)
 })

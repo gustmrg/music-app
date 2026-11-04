@@ -263,7 +263,9 @@ export class TorrentEngine implements VirtualTracks {
         settled = true
         added.destroy(() => reject(new Error("Os metadados do torrent não chegaram a tempo. Tente novamente ou escolha outro resultado.")))
       }, METADATA_TIMEOUT_MS)
-      const added = client.add(input, { path: this.cachePath }, (ready) => {
+      // Expansion may fetch metadata, but only explicit save/stream requests
+      // select content pieces. Never let WebTorrent select the whole release.
+      const added = client.add(input, { path: this.cachePath, deselect: true }, (ready) => {
         clearTimeout(timeout)
         if (settled) return
         settled = true
@@ -361,7 +363,10 @@ export class TorrentEngine implements VirtualTracks {
       job.pending.set(entry.index, entry)
       queued++
       if (entry.file.done) void this.copySaved(job, entry.index)
-      else entry.file.once("done", () => { void this.copySaved(job, entry.index) })
+      else {
+        entry.file.once("done", () => { void this.copySaved(job, entry.index) })
+        entry.file.select()
+      }
     }
     this.touch(torrent.infoHash)
     this.startSweeper()
@@ -455,7 +460,7 @@ export class TorrentEngine implements VirtualTracks {
         if (!inUse && !this.saves.has(key) && idle > EVICTION_GRACE_MS) this.destroyTorrent(key, torrent)
       }
       if (this.onProgress) {
-        this.onProgress([...this.torrents.values()].filter((torrent) => !torrent.destroyed).map((torrent) => ({
+        this.onProgress([...this.torrents.values()].filter((torrent) => !torrent.destroyed && (this.saves.has(torrent.infoHash) || [...this.tracks.values()].some((entry) => entry.torrent === torrent))).map((torrent) => ({
           infoHash: torrent.infoHash,
           name: torrent.name,
           progress: torrent.progress,
@@ -486,6 +491,12 @@ export class TorrentEngine implements VirtualTracks {
       this.tracks.clear()
       await this.resetCache()
     }
+  }
+
+  stop(infoHash: unknown) {
+    if (typeof infoHash !== "string") throw new Error("Torrent inválido.")
+    const torrent = this.liveTorrent(infoHash)
+    if (torrent) this.destroyTorrent(infoHash, torrent)
   }
 
   async destroy() {
