@@ -1,5 +1,5 @@
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react"
-import { Download, Heart, ListMusic, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, Volume2 } from "lucide-react"
+import { Download, Heart, ListMusic, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, Volume2, VolumeX } from "lucide-react"
 import { errorMessage, formatTime, trackArtist, type Track } from "@/library"
 import { Button } from "@/components/ui/button"
 import { Cover } from "@/components/Cover"
@@ -25,6 +25,7 @@ export function Player({ ref, onPlayingChange, track, request, liked, volume, mo
   const [playing, setPlaying] = useState(false)
   const [progress, setProgress] = useState(0)
   const [duration, setDuration] = useState(0)
+  const [bufferedEnd, setBufferedEnd] = useState(0)
   const [resolving, setResolving] = useState(false)
   const [buffering, setBuffering] = useState(false)
   // Lives have no duration and never end; they stream from the main
@@ -48,6 +49,8 @@ export function Player({ ref, onPlayingChange, track, request, liked, volume, mo
     if (!element) return
     window.clearTimeout(retryTimer.current)
     setConnecting(true)
+    setProgress(0)
+    setBufferedEnd(0)
     element.src = `local-music://live/${id}?session=${Date.now()}`
     element.load()
     void element.play().catch(() => { /* failures arrive as error events */ })
@@ -102,6 +105,7 @@ export function Player({ ref, onPlayingChange, track, request, liked, volume, mo
     setPlaying(false)
     setProgress(0)
     setDuration(0)
+    setBufferedEnd(0)
     setLive(false)
     setConnecting(false)
     retries.current = 0
@@ -141,6 +145,16 @@ export function Player({ ref, onPlayingChange, track, request, liked, volume, mo
   // bracket those gaps so the UI can say what is happening.
   useEffect(() => { if (!isTorrent) setBuffering(false) }, [isTorrent, trackId])
 
+  // A live has no total duration. Its timeline grows with the audio received
+  // in this connection, rather than treating Infinity as a fixed duration.
+  const liveEnd = Math.max(progress, bufferedEnd, 1)
+  const updateLiveBuffer = (element: HTMLAudioElement) => {
+    if (!live) return
+    const ranges = element.buffered
+    const end = ranges.length ? ranges.end(ranges.length - 1) : 0
+    setBufferedEnd(Number.isFinite(end) ? end : 0)
+  }
+
   const status = connecting ? "Conectando à transmissão…" : resolving ? "Buscando áudio…" : subtitle
 
   return <footer className="player-bar" aria-label="Player de música">
@@ -151,7 +165,9 @@ export function Player({ ref, onPlayingChange, track, request, liked, volume, mo
       onStalled={() => { if (isTorrent) setBuffering(true) }}
       onPlaying={() => { setBuffering(false); if (live) { setConnecting(false); retries.current = 0 } }}
       onCanPlay={() => setBuffering(false)}
-      onTimeUpdate={(event) => { setBuffering(false); setProgress(event.currentTarget.currentTime) }}
+      onEmptied={() => { setProgress(0); setBufferedEnd(0) }}
+      onProgress={(event) => updateLiveBuffer(event.currentTarget)}
+      onTimeUpdate={(event) => { setBuffering(false); setProgress(event.currentTarget.currentTime); updateLiveBuffer(event.currentTarget) }}
       onDurationChange={(event) => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
       onError={(event) => {
         // A paused live has no src on purpose; only a live that was playing reconnects.
@@ -179,9 +195,16 @@ export function Player({ ref, onPlayingChange, track, request, liked, volume, mo
         <Button variant="ghost" size="icon" aria-label="Próxima música" disabled={!track} onClick={() => onNext()}><SkipForward /></Button>
       </div>
       {live
-        ? <div className="seek live"><span className="live-badge" title="Transmissão ao vivo: não há duração nem avanço">Ao vivo</span></div>
+        ? <div className="seek live">
+          <span>{formatTime(progress)}</span>
+          <div className="live-progress" role="progressbar" aria-label="Reprodução da transmissão ao vivo" aria-valuemin={0} aria-valuemax={liveEnd} aria-valuenow={progress} aria-valuetext={`${formatTime(progress)} reproduzidos nesta conexão`} title="Áudio reproduzido e carregado nesta conexão. Transmissões ao vivo não permitem avançar ou retroceder.">
+            <i className="live-progress-buffer" style={{ width: `${bufferedEnd / liveEnd * 100}%` }} />
+            <i className="live-progress-played" style={{ width: `${progress / liveEnd * 100}%` }} />
+          </div>
+          <span className="live-badge" title="Transmissão ao vivo">Ao vivo</span>
+        </div>
         : <div className="seek"><span>{formatTime(progress)}</span><input type="range" min={0} max={duration || 1} step={0.1} value={Math.min(progress, duration || 1)} disabled={!track || !duration || resolving} aria-label="Posição da música" onChange={(event) => { const time = Number(event.target.value); if (audio.current) audio.current.currentTime = time; setProgress(time) }} /><span>{formatTime(duration)}</span></div>}
     </div>
-    <div className="player-right"><Volume2 size={18} /><input type="range" min={0} max={1} step={0.01} value={volume} aria-label="Volume" onChange={(event) => onVolume(Number(event.target.value))} /><Button variant="ghost" size="icon" aria-label="Abrir fila de reprodução" onClick={onQueue}><ListMusic /></Button></div>
+    <div className="player-right">{volume === 0 ? <VolumeX size={18} aria-label="Sem som" /> : <Volume2 size={18} aria-label="Com som" />}<input type="range" min={0} max={1} step={0.01} value={volume} aria-label="Volume" onChange={(event) => onVolume(Number(event.target.value))} /><Button variant="ghost" size="icon" aria-label="Abrir fila de reprodução" onClick={onQueue}><ListMusic /></Button></div>
   </footer>
 }
