@@ -199,6 +199,7 @@ handleConcurrent("torrent:prepare", async (_win, source, fileIndex) => {
   return { ...prepared, url: `local-music://track/${prepared.id}` }
 })
 handleConcurrent("torrent:release", (_win, id) => { engine.release(id) })
+handleConcurrent("torrent:stop-one", (_win, infoHash) => engine.stop(infoHash))
 handleConcurrent("torrent:stop", (_win, includeSaves) => engine.stopAll({ includeSaves: includeSaves === true }))
 // Save: keep the streamed files and add them to the library once complete.
 handleConcurrent("torrent:save", (_win, source, fileIndexes) => engine.save(source, fileIndexes, library.saveFolderPath()))

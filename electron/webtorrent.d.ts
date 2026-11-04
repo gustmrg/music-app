@@ -14,6 +14,7 @@ declare module "webtorrent" {
     length: number
     downloaded: number
     done: boolean
+    select(): void
     createReadStream(options?: { start?: number; end?: number }): FileStream
   }
 
@@ -36,7 +37,7 @@ declare module "webtorrent" {
   }
 
   export interface Instance extends EventEmitter {
-    add(input: string | Buffer, options: { path: string }, onTorrent: (torrent: Torrent) => void): Torrent
+    add(input: string | Buffer, options: { path: string; deselect: boolean }, onTorrent: (torrent: Torrent) => void): Torrent
     destroy(callback?: (error?: Error) => void): void
   }
 

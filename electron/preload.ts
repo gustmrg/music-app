@@ -36,6 +36,7 @@ const desktop: DesktopApi = {
   expandTorrent: (source) => invoke("torrent:expand", source),
   prepareTorrent: (source, fileIndex) => invoke("torrent:prepare", source, fileIndex),
   releaseTorrent: (id) => invoke("torrent:release", id),
+  stopTorrent: (infoHash) => invoke("torrent:stop-one", infoHash),
   stopTorrents: (includeSaves) => invoke("torrent:stop", includeSaves === true),
   saveTorrent: (source, fileIndexes) => invoke("torrent:save", source, fileIndexes),
   saveTorrentTrack: (id) => invoke("torrent:save-track", id),

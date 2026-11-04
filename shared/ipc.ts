@@ -24,6 +24,7 @@ export interface InvokeChannels {
   "torrent:expand": { args: [source: string]; result: TorrentExpansion }
   "torrent:prepare": { args: [source: string, fileIndex: number]; result: PreparedTorrentTrack }
   "torrent:release": { args: [id: string]; result: void }
+  "torrent:stop-one": { args: [infoHash: string]; result: void }
   "torrent:stop": { args: [includeSaves: boolean]; result: void }
   "torrent:save": { args: [source: string, fileIndexes: number[]]; result: SaveStarted }
   "torrent:save-track": { args: [id: string]; result: SaveStarted }
@@ -65,6 +66,7 @@ export interface DesktopApi {
   expandTorrent: Invoke<"torrent:expand">
   prepareTorrent: Invoke<"torrent:prepare">
   releaseTorrent: Invoke<"torrent:release">
+  stopTorrent: Invoke<"torrent:stop-one">
   stopTorrents: (includeSaves?: boolean) => Promise<InvokeResult<"torrent:stop">>
   saveTorrent: Invoke<"torrent:save">
   saveTorrentTrack: Invoke<"torrent:save-track">
