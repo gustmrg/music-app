@@ -177,8 +177,10 @@ handle("youtube:add", async (_win, text, name) => {
   return library.addVideos(videos, playlistTitle || String(name ?? "").trim().slice(0, 120))
 })
 
-handleConcurrent("youtube:resolve", async (_win, id) => {
-  const resolved = await resolveYouTube(id)
+handleConcurrent("youtube:resolve", async (_win, id, fresh) => {
+  // A URL that failed to play is resolved again, so updating yt-dlp takes
+  // effect without restarting the app.
+  const resolved = await resolveYouTube(id, fresh === true)
   // Lives play through ffmpeg; say so before the player asks for audio.
   if (resolved.isLive && !await (ffmpegCheck ??= ffmpegAvailable())) {
     ffmpegCheck = undefined

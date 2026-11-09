@@ -30,7 +30,7 @@ const desktop: DesktopApi = {
   exportPlaylist: (ids) => invoke("library:export-playlist", ids),
   savePreferences: (preferences) => invoke("library:preferences", preferences),
   addYoutube: (text, name) => invoke("youtube:add", text, name),
-  resolveYoutube: (id) => invoke("youtube:resolve", id),
+  resolveYoutube: (id, fresh) => invoke("youtube:resolve", id, fresh === true),
   searchDiscover: (query) => invoke("discover:search", query),
   testDiscover: (settings) => invoke("discover:test", settings),
   expandTorrent: (source) => invoke("torrent:expand", source),

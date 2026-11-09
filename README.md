@@ -18,7 +18,7 @@ A desktop music player built around your own library. Add the audio files alread
 
 ## Installation
 
-Download the installer from the [Releases](https://github.com/gustmrg/music-app/releases) page (macOS arm64, Windows x64, and Linux x64). YouTube requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) installed on the system, and Discover requires a Prowlarr or Jackett instance.
+Download the installer from the [Releases](https://github.com/gustmrg/music-app/releases) page (macOS arm64, Windows x64, and Linux x64). YouTube requires an up-to-date [yt-dlp](https://github.com/yt-dlp/yt-dlp) installed on the system ([how to update](docs/installation.md#keep-yt-dlp-up-to-date)), and Discover requires a Prowlarr or Jackett instance.
 
 > [!IMPORTANT]
 > The apps are **not signed**. macOS and Windows show a warning the first time you open them; see how to allow the app in [Installation](docs/installation.md#unsigned-app).
