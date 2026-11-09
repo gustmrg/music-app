@@ -9,7 +9,7 @@ A desktop music player built around your own library. Add the audio files alread
 
 ## What it does
 
-- **Local library:** add files or whole folders (MP3, FLAC, WAV, OGG, Opus, M4A, AAC, and WebM). Embedded tags and cover art are read on import, so you can browse by Albums, Library, Folders, Favorites, and Recents, with filters by artist, genre, format, and origin.
+- **Local library:** add files or whole folders (MP3, FLAC, WAV, OGG, Opus, M4A, AAC, and WebM). Added folders are watched, so new, changed, and removed files update the library on their own. Embedded tags and cover art are read on import, so you can browse by Albums, Library, Folders, Favorites, and Recents, with filters by artist, genre, format, and origin.
 - **Torrents through your indexer:** **Discover** searches your own Prowlarr or Jackett, streams any track of a result right away, and saves the albums or tracks you want to keep into the library.
 - **YouTube:** paste video, playlist, or livestream links and listen by streaming, resolved through yt-dlp the moment a track plays. Livestreams also need ffmpeg.
 - **Playlists and queue:** create playlists from selected tracks, reorder them, import and export M3U/M3U8, and save the current queue.
@@ -29,7 +29,6 @@ Download the installer from the [Releases](https://github.com/gustmrg/music-app/
 ## Roadmap
 
 - Save the audio of YouTube tracks and livestreams into the library.
-- Automatic folder watching.
 
 ## Running from source
 

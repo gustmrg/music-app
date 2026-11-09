@@ -9,7 +9,8 @@
 ## Library and player
 
 - **Open files** selects individual tracks.
-- **Add folder** reads tracks from the folder and its subfolders. Use the button again to find files added later; there is no automatic watching.
+- **Add folder** reads tracks from the folder and its subfolders and keeps watching it (desktop). Files copied into a watched folder appear within a few seconds, with tags and cover art; files whose tags change are read again; changes made while the app was closed are picked up when it opens. Adding a folder inside a watched one does not add a second watch.
+- **Folders** lists the watched folders. **Parar de monitorar** stops watching one and keeps its tracks. A deleted file, or one on a disconnected disk, stays in the library, playlists, and favorites marked **Indisponível**, and returns to normal when the file comes back. A file renamed or moved inside watched folders keeps its favorites, playlists, and tag edits. **Remover indisponíveis** removes unavailable tracks from the library (and from playlists and favorites) after a confirmation; no file is deleted. See [ADR 5](adr/0005-watched-folders-keep-missing-tracks.md).
 - The sidebar groups **Listen** (Library, Albums, Recents, Favorites, Discover) and **Organize** (Playlists, Folders).
 - Tags embedded in the files (title, artist, album artist, album, track and disc number, year, genre, duration, and cover art) are read on import and cached in the library, so files are not read again on startup. Libraries saved by older versions are scanned once in the background.
 - **Albums** groups tracks by album and album artist (or, without an album artist, by album and folder).
@@ -30,9 +31,11 @@ The original files are never copied, moved, edited, or deleted. The library (inc
 
 ## Limits of this version
 
-- Titles come from the title tag, or from the file name when there is none. Tags changed in another program are picked up when the folder or files are added again.
+- Titles come from the title tag, or from the file name when there is none. Tags changed in another program are picked up automatically in watched folders, and otherwise when the files are added again.
 - Selectable extensions: MP3, WAV, FLAC, OGG, Opus, M4A, AAC, and WebM. Playback depends on the codecs in the Electron version and on the file contents; errors appear in the interface.
-- Moved, deleted, or disconnected-disk files stay referenced and fail when played. Add them again from their current location.
+- Files opened individually (outside a watched folder) are not watched: if they are moved or deleted, they stay referenced and fail when played. Add them again from their current location.
+- Folders added before watching existed are not watched until you add them again; their tracks are not duplicated.
+- A file that is copied (rather than moved) to replace a deleted one usually gets a new modification time and is imported as a new track.
 - Playlists import only local references, with no streaming URLs or network shares. Older M3U files in another encoding must be converted to UTF-8.
 - The same track appears once per playlist. Directory symbolic links are not followed.
 - The web preview opens files and folders for the current session only; persistence and M3U import/export are desktop features.

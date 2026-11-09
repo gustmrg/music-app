@@ -12,6 +12,7 @@ import { searchDiscover, testDiscover, cleanDiscoverSettings, isIndexerUrl } fro
 import { TorrentEngine } from "./torrent.ts"
 import { coverResponse } from "./metadata.ts"
 import { LiveStreams, ffmpegAvailable, FFMPEG_MISSING } from "./live.ts"
+import { FolderWatchers } from "./folders.ts"
 
 // This file is bundled to dist-electron/main.cjs, next to preload.cjs.
 const isDev = !app.isPackaged
@@ -19,6 +20,7 @@ const entryURL = isDev ? "http://127.0.0.1:5173/" : pathToFileURL(path.join(impo
 // Both are created once the app is ready, before any handler can run.
 let library: LocalLibrary
 let engine: TorrentEngine
+let watchers: FolderWatchers | undefined
 let ready: Promise<Library>
 let operations: Promise<unknown> = Promise.resolve()
 protocol.registerSchemesAsPrivileged([
@@ -112,8 +114,16 @@ handle("library:folder", async (win) => {
   if (selection.canceled) return null
   // Start the next pick next to this folder, where sibling folders live.
   rememberFolder(path.dirname(selection.filePaths[0]))
-  return library.addFolder(selection.filePaths[0])
+  const result = await library.addFolder(selection.filePaths[0])
+  watchers?.sync(library.watchedFolders)
+  return result
 })
+handle("library:unwatch-folder", async (_win, folder) => {
+  const folders = await library.unwatchFolder(String(folder))
+  watchers?.sync(folders)
+  return folders
+})
+handle("library:remove-missing", () => library.removeMissing())
 handle("library:import-playlist", async (win) => {
   const selection = await dialog.showOpenDialog(win, { title: "Importar playlist local", defaultPath: startIn(), properties: ["openFile"], filters: [{ name: "Playlist UTF-8", extensions: ["m3u8", "m3u"] }] })
   if (selection.canceled) return null
@@ -205,6 +215,17 @@ handleConcurrent("torrent:stop", (_win, includeSaves) => engine.stopAll({ includ
 handleConcurrent("torrent:save", (_win, source, fileIndexes) => engine.save(source, fileIndexes, library.saveFolderPath()))
 handleConcurrent("torrent:save-track", (_win, id) => engine.saveTrack(id, library.saveFolderPath()))
 
+// Watched folders report changes from outside the app; reconciling them is a
+// library mutation, so it goes through the queue like any import.
+function reconcileFolders(scopes: string[]) {
+  return enqueue(async () => {
+    const { changed, moved } = await library.reconcile(scopes)
+    if (!changed) return
+    if (Object.keys(moved).length) broadcast("library:moved", moved)
+    broadcast("library:tracks", library.snapshot().tracks)
+  }).catch((error: Error) => console.error("Unable to update watched folders:", error.message))
+}
+
 function defaultSaveFolder() {
   let music: string
   try { music = app.getPath("music") } catch { music = path.join(app.getPath("home"), "Music") }
@@ -220,6 +241,13 @@ app.whenReady().then(() => {
   // Tracks imported before tag support get their tags in the background.
   ready.then(() => library.scanPending((tracks) => broadcast("library:tracks", tracks)))
     .catch((error: Error) => console.error("Unable to read track tags:", error.message))
+  // Watch first, then catch up on what changed while the app was closed, so
+  // nothing falls between the two.
+  watchers = new FolderWatchers({ onChange: (_folder, scopes) => void reconcileFolders(scopes) })
+  ready.then(() => {
+    watchers?.sync(library.watchedFolders)
+    return reconcileFolders(library.watchedFolders)
+  }).catch(() => { /* a library that failed to load is reported above */ })
   // Download links are fetched only from the configured indexer's origin.
   engine = new TorrentEngine({ cachePath: path.join(app.getPath("userData"), "torrent-cache"), allowUrl: (url) => isIndexerUrl(library.preferences.discover, url) })
   engine.onProgress = (snapshot) => broadcast("torrent:progress", snapshot)
@@ -257,6 +285,7 @@ app.on("before-quit", (event) => {
   // Destroying the engine cancels pending saves, which may still queue
   // library imports for files already copied; drain the queue once more.
   lives.stopAll()
+  watchers?.close()
   operations.catch(() => {}).then(() => engine?.destroy()).catch(() => {})
     .then(() => operations).catch(() => {}).then(() => library?.writes).catch(() => {})
     .finally(() => { quitting = true; app.quit() })

@@ -196,3 +196,144 @@ test("restores the display mode and defaults older or invalid preferences to lis
   await library.savePreferences({ ...library.preferences, viewMode: "grid" })
   assert.equal((await new LocalLibrary(library.storeFile).load()).viewMode, "grid")
 })
+
+// Folder watching: the library keeps the folders the user added and
+// reconciles them with the disk. Removed files are marked missing, never
+// dropped, so playlists and favorites keep pointing at them.
+async function watched(t: TestContext) {
+  const base = await fixture(t)
+  const music = await fs.realpath(base.music)
+  const files = await Promise.all(base.files.map((file) => fs.realpath(file)))
+  const result = await base.library.addFolder(music)
+  return { ...base, music, files, result }
+}
+const trackAt = (library: LocalLibrary, file: string) => library.snapshot().tracks.find((track) => track.path === file)
+
+test("remembers added folders, merges nested ones, and keeps them across reloads", async (t) => {
+  const { library, music, result } = await watched(t)
+  assert.deepEqual(result.watchedFolders, [music])
+  await library.addFolder(path.join(music, "Álbum"))
+  assert.deepEqual(library.watchedFolders, [music])
+  const parent = path.dirname(music)
+  await library.addFolder(parent)
+  assert.deepEqual(library.watchedFolders, [parent])
+  assert.deepEqual((await new LocalLibrary(library.storeFile).load()).watchedFolders, [parent])
+  // Older libraries have no list; invalid entries are dropped.
+  await fs.writeFile(library.storeFile, JSON.stringify({ version: 1, tracks: [], watchedFolders: ["relative", 42, "//host/share", parent, parent] }))
+  assert.deepEqual((await new LocalLibrary(library.storeFile).load()).watchedFolders, [parent])
+})
+
+test("reconciles new, removed, and restored files under a watched folder", async (t) => {
+  const { library, music, files } = await watched(t)
+  const added = path.join(music, "Novo", "tagged.mp3")
+  await fs.mkdir(path.dirname(added))
+  await fs.copyFile(path.join(import.meta.dirname, "fixtures", "tagged.mp3"), added)
+  const removedId = present(trackAt(library, files[0])).id
+  await library.savePreferences({ ...library.preferences, liked: [removedId], playlists: [{ id: "p", name: "P", trackIds: [removedId] }] })
+  const original = await fs.readFile(files[0])
+  await fs.rm(files[0])
+
+  assert.equal((await library.reconcile([music])).changed, true)
+  const fresh = present(trackAt(library, added))
+  assert.equal(fresh.scanned, true)
+  assert.ok(fresh.addedAt)
+  assert.equal(present(trackAt(library, files[0])).missing, true)
+  assert.deepEqual(library.preferences.liked, [removedId])
+  assert.deepEqual(library.preferences.playlists[0].trackIds, [removedId])
+  assert.equal((await library.reconcile([music])).changed, false)
+
+  await fs.writeFile(files[0], original)
+  await library.reconcile([path.join(music, "Novo")])
+  assert.equal(present(trackAt(library, files[0])).missing, true, "a scope only reconciles its own subtree")
+  await library.reconcile([music])
+  assert.equal(present(trackAt(library, files[0])).missing, undefined)
+})
+
+test("carries favorites, playlists, and tag edits over to a renamed or moved file", async (t) => {
+  const { library, music, files } = await watched(t)
+  const before = present(trackAt(library, files[1]))
+  await library.savePreferences({ ...library.preferences, liked: [before.id], recent: [before.id], tagEdits: { [before.id]: { album: "Editado" } }, playlists: [{ id: "p", name: "P", trackIds: [before.id] }] })
+  const moved = path.join(music, "Outro lugar", "02 - Renomeada.mp3")
+  await fs.mkdir(path.dirname(moved))
+  await fs.rename(files[1], moved)
+
+  // Watchers report the old and new folders separately.
+  await library.reconcile([path.dirname(files[1])])
+  const result = await library.reconcile([path.dirname(moved)])
+  const after = present(trackAt(library, moved))
+  assert.deepEqual(result.moved, { [before.id]: after.id })
+  assert.equal(library.tracks.has(before.id), false)
+  assert.equal(after.addedAt, before.addedAt)
+  assert.deepEqual(library.preferences.liked, [after.id])
+  assert.deepEqual(library.preferences.recent, [after.id])
+  assert.deepEqual(library.preferences.playlists[0].trackIds, [after.id])
+  assert.deepEqual(library.preferences.tagEdits, { [after.id]: { album: "Editado" } })
+})
+
+test("rereads tags only for files that changed", async (t) => {
+  const { library, music } = await watched(t)
+  const file = path.join(music, "tagged.flac")
+  await fs.writeFile(file, "not yet audio")
+  await library.reconcile([music])
+  assert.equal(present(trackAt(library, file)).artist, undefined)
+  // A file that finished copying, or whose tags another program edited.
+  await fs.copyFile(path.join(import.meta.dirname, "fixtures", "tagged.flac"), file)
+  await fs.utimes(file, new Date(), new Date(Date.now() + 5000))
+  assert.equal((await library.reconcile([music])).changed, true)
+  const updated = present(trackAt(library, file))
+  assert.equal(updated.artist, "Artista FLAC")
+  assert.equal(updated.size, (await fs.stat(file)).size)
+})
+
+test("leaves tracks alone while a watched folder is unreachable", async (t) => {
+  const { library, music, root } = await watched(t)
+  // An unmounted disk looks like a folder that no longer exists.
+  const unmounted = path.join(root, "unmounted")
+  await fs.rename(music, unmounted)
+  assert.equal((await library.reconcile([music])).changed, false)
+  assert.equal(library.snapshot().tracks.filter((track) => track.missing).length, 0)
+  await fs.rename(unmounted, music)
+  assert.equal((await library.reconcile([path.join(music, "Álbum", "gone")])).changed, false)
+})
+
+test("does not mark files missing inside folders it cannot read", { skip: process.getuid?.() === 0 }, async (t) => {
+  const { library, music } = await watched(t)
+  const album = path.join(music, "Álbum")
+  await fs.chmod(album, 0o000)
+  // Restored here: the fixture's cleanup cannot delete an unreadable folder.
+  try { await library.reconcile([music]) } finally { await fs.chmod(album, 0o755) }
+  assert.equal(library.snapshot().tracks.filter((track) => track.missing).length, 0)
+})
+
+test("picks up changes made while the app was closed", async (t) => {
+  const { library, music, files } = await watched(t)
+  await fs.rm(files[0])
+  await fs.copyFile(path.join(import.meta.dirname, "fixtures", "tagged.mp3"), path.join(music, "tagged.mp3"))
+  const reopened = new LocalLibrary(library.storeFile)
+  await reopened.load()
+  assert.equal((await reopened.reconcile(reopened.watchedFolders)).changed, true)
+  assert.equal(present(trackAt(reopened, files[0])).missing, true)
+  assert.ok(trackAt(reopened, path.join(music, "tagged.mp3")))
+  const stored = present((await new LocalLibrary(library.storeFile).load()).tracks.find((track) => track.path === files[0]))
+  assert.equal(stored.missing, true)
+})
+
+test("stops watching a folder without removing its tracks and removes missing tracks on request", async (t) => {
+  const { library, music, files } = await watched(t)
+  assert.deepEqual(await library.unwatchFolder(music), [])
+  assert.equal(library.snapshot().tracks.length, 2)
+  await fs.rm(files[0])
+  assert.equal((await library.reconcile([music])).changed, false, "an unwatched folder is not reconciled")
+
+  await library.addFolder(music)
+  const missing = present(trackAt(library, files[0]))
+  assert.equal(missing.missing, true)
+  await library.savePreferences({ ...library.preferences, liked: [missing.id], playlists: [{ id: "p", name: "P", trackIds: [missing.id] }] })
+  const result = await library.removeMissing()
+  assert.deepEqual(result.removed, [missing.id])
+  assert.equal(result.tracks.length, 1)
+  assert.deepEqual(library.preferences.liked, [])
+  assert.deepEqual(library.preferences.playlists[0].trackIds, [])
+  // Files are never touched: the remaining one is intact.
+  assert.equal(await fs.readFile(files[1], "utf8"), "original audio bytes")
+})
