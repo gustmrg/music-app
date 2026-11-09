@@ -3,7 +3,10 @@
 
 export type TrackTags = { artist?: string; albumArtist?: string; album?: string; genre?: string; year?: number; trackNo?: number; discNo?: number; duration?: number; cover?: string }
 export type TrackSource = "youtube" | "torrent"
-export type Track = TrackTags & { id: string; path: string; title: string; folder: string; format: string; url?: string; source?: TrackSource; isLive?: boolean; infoHash?: string; addedAt?: number; scanned?: boolean }
+// size and modifiedAt record the file as last read, so watched folders can
+// tell changed files from unchanged ones. missing marks a file that left a
+// watched folder; the track stays until the user removes it.
+export type Track = TrackTags & { id: string; path: string; title: string; folder: string; format: string; url?: string; source?: TrackSource; isLive?: boolean; infoHash?: string; addedAt?: number; scanned?: boolean; size?: number; modifiedAt?: number; missing?: boolean }
 // In-app tag overrides; files are never modified. "" (or year 0) clears a field.
 export type TagEdit = { artist?: string; albumArtist?: string; album?: string; genre?: string; year?: number }
 export type Playlist = { id: string; name: string; trackIds: string[] }
@@ -16,8 +19,11 @@ export type DiscoverResult = { title: string; artist: string; album: string; yea
 export type DiscoverTest = { ok: true; hint: string }
 
 export type Preferences = { liked: string[]; recent: string[]; playlists: Playlist[]; volume: number; viewMode: "list" | "grid"; discover: DiscoverSettings; tagEdits: Record<string, TagEdit> }
-export type Library = Preferences & { tracks: Track[]; saveFolder: string }
-export type ImportResult = { tracks: Track[]; imported: string[]; skipped: number; playlist?: Playlist }
+// watchedFolders are the folders added with "Adicionar pasta", kept in sync
+// with the disk by the main process.
+export type Library = Preferences & { tracks: Track[]; saveFolder: string; watchedFolders: string[] }
+export type ImportResult = { tracks: Track[]; imported: string[]; skipped: number; playlist?: Playlist; watchedFolders?: string[] }
+export type MissingRemoved = { tracks: Track[]; removed: string[] }
 
 export type TorrentFile = { index: number; name: string; length: number; isAudio: boolean }
 export type TorrentExpansion = { infoHash: string; name: string; files: TorrentFile[] }

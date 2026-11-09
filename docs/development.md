@@ -27,7 +27,8 @@ docs/                detailed documentation
 electron/
   main.ts            window, native pickers, IPC, and audio protocol
   preload.ts         restricted API exposed to the interface
-  library.ts         files, playlists, and JSON persistence
+  library.ts         files, playlists, watched folders, and JSON persistence
+  folders.ts         watches added folders and reports changes (debounced)
   metadata.ts        embedded tags and cover art
   youtube.ts         YouTube links, metadata, and stream resolution via yt-dlp
   discover.ts        Prowlarr and Torznab search

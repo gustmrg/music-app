@@ -94,6 +94,15 @@ h1 { margin: 0; font-size: 32px; line-height: 1.2; letter-spacing: -1px; font-we
 .track-title { max-width: 100%; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .track-artist { max-width: 100%; font-size: 12px; color: #9292a0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .track-no-album { color: #6e6e7b; }
+.track-row.missing .track-name, .track-row.missing .track-folder, .track-row.missing .track-duration { opacity: .55; }
+.missing-badge { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #d9a35c; }
+.watched-folders { margin-bottom: 28px; padding: 18px 20px; border: 1px solid #2b2b34; border-radius: 12px; background: #18181e; }
+.watched-folders h2 { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+.watched-folders h2 svg { color: #bf929f; }
+.watched-folders ul { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; }
+.watched-folders li { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; padding: 6px 0; border-top: 1px solid #23232a; font-size: 13px; }
+.watched-folders li span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.watched-folders li button { flex-shrink: 0; }
 .track-duration { font-size: 12px; color: #9292a0; font-variant-numeric: tabular-nums; }
 .current .track-title, .accent { color: #f06468; }
 .track-folder { font-size: 12px; color: #9292a0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

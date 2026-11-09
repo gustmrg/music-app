@@ -1,5 +1,5 @@
 import type {
-  DiscoverResult, DiscoverSettings, DiscoverTest, ImportResult, Library, Preferences, PreparedTorrentTrack,
+  DiscoverResult, DiscoverSettings, DiscoverTest, ImportResult, Library, MissingRemoved, Preferences, PreparedTorrentTrack,
   SaveStarted, TorrentExpansion, TorrentProgress, TorrentSaved, Track, YouTubeResolved,
 } from "./types.ts"
 
@@ -17,6 +17,10 @@ export interface InvokeChannels {
   "library:export-playlist": { args: [ids: string[]]; result: boolean }
   "library:preferences": { args: [preferences: Preferences]; result: void }
   "library:save-folder": { args: []; result: string | null }
+  // Stops watching a folder; its tracks stay. Returns the watched folders.
+  "library:unwatch-folder": { args: [folder: string]; result: string[] }
+  // Removes tracks whose files left a watched folder; files are not touched.
+  "library:remove-missing": { args: []; result: MissingRemoved }
   "youtube:add": { args: [text: string, name?: string]; result: ImportResult }
   "youtube:resolve": { args: [id: string]; result: YouTubeResolved }
   "discover:search": { args: [query: string]; result: { results: DiscoverResult[] } }
@@ -36,6 +40,9 @@ export type SendChannel = "window:minimize" | "window:toggle-maximize" | "window
 // webContents.send → ipcRenderer.on, pushed by the main process.
 export interface EventChannels {
   "library:tracks": Track[]
+  // Old track id → new track id for files renamed or moved inside watched
+  // folders, so favorites, playlists, and tag edits follow them.
+  "library:moved": Record<string, string>
   "torrent:progress": TorrentProgress[]
   "torrent:saved": TorrentSaved
 }
@@ -59,6 +66,8 @@ export interface DesktopApi {
   exportPlaylist: Invoke<"library:export-playlist">
   savePreferences: Invoke<"library:preferences">
   chooseSaveFolder: Invoke<"library:save-folder">
+  unwatchFolder: Invoke<"library:unwatch-folder">
+  removeMissing: Invoke<"library:remove-missing">
   addYoutube: Invoke<"youtube:add">
   resolveYoutube: Invoke<"youtube:resolve">
   searchDiscover: Invoke<"discover:search">
@@ -72,5 +81,6 @@ export interface DesktopApi {
   saveTorrentTrack: Invoke<"torrent:save-track">
   onTorrentSaved: Subscribe<"torrent:saved">
   onLibraryTracks: Subscribe<"library:tracks">
+  onLibraryMoved: Subscribe<"library:moved">
   onTorrentProgress: Subscribe<"torrent:progress">
 }

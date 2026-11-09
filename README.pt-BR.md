@@ -9,7 +9,7 @@ Um player de música para o desktop construído em torno da sua própria bibliot
 
 ## O que ele faz
 
-- **Biblioteca local:** adicione arquivos ou pastas inteiras (MP3, FLAC, WAV, OGG, Opus, M4A, AAC e WebM). Tags e capas embutidas são lidas na importação, para navegar por Álbuns, Biblioteca, Pastas, Favoritos e Recentes, com filtros por artista, gênero, formato e origem.
+- **Biblioteca local:** adicione arquivos ou pastas inteiras (MP3, FLAC, WAV, OGG, Opus, M4A, AAC e WebM). As pastas adicionadas são monitoradas, então arquivos novos, alterados ou removidos atualizam a biblioteca sozinhos. Tags e capas embutidas são lidas na importação, para navegar por Álbuns, Biblioteca, Pastas, Favoritos e Recentes, com filtros por artista, gênero, formato e origem.
 - **Torrents pelo seu indexador:** o **Descobrir** busca no seu Prowlarr ou Jackett, toca na hora qualquer faixa de um resultado e salva na biblioteca os álbuns ou faixas que você quiser manter.
 - **YouTube:** cole links de vídeos, playlists ou transmissões ao vivo e ouça por streaming, resolvido pelo yt-dlp no momento em que a faixa toca. As transmissões ao vivo também precisam do ffmpeg.
 - **Playlists e fila:** crie playlists a partir de faixas selecionadas, reordene, importe e exporte M3U/M3U8 e salve a fila atual.
@@ -29,7 +29,6 @@ Baixe o instalador na página de [Releases](https://github.com/gustmrg/music-app
 ## Próximos passos
 
 - Salvar na biblioteca o áudio de faixas e livestreams do YouTube.
-- Monitoramento automático de pastas.
 
 ## Rodando a partir do código
 
