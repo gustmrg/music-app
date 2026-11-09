@@ -3,6 +3,7 @@ import { Download, Heart, ListMusic, Pause, Play, Repeat, Repeat1, Shuffle, Skip
 import { errorMessage, formatTime, trackArtist, type Track } from "@/library"
 import { Button } from "@/components/ui/button"
 import { Cover } from "@/components/Cover"
+import { YT_DLP_UPDATE_HINT } from "../../shared/messages"
 
 export type PlayMode = "order" | "repeat" | "one" | "shuffle"
 const modes: PlayMode[] = ["order", "repeat", "one", "shuffle"]
@@ -34,6 +35,11 @@ export function Player({ ref, onPlayingChange, track, request, liked, volume, mo
   const [connecting, setConnecting] = useState(false)
   const retries = useRef(0)
   const retryTimer = useRef<number | undefined>(undefined)
+  // A YouTube track whose stream failed; its next play asks yt-dlp for a new
+  // URL instead of the cached one.
+  const failedStream = useRef<string | undefined>(undefined)
+  // Bumped to resolve the current YouTube track again after it failed.
+  const [reload, setReload] = useState(0)
   const isYouTube = track?.source === "youtube"
   const isTorrent = track?.source === "torrent"
   const source = track && !isYouTube ? track.url ?? `local-music://track/${track.id}` : undefined
@@ -86,8 +92,12 @@ export function Player({ ref, onPlayingChange, track, request, liked, volume, mo
     const element = audio.current
     if (!element) return
     if (live && trackId && !element.getAttribute("src")) { retries.current = 0; openLive(trackId); return }
+    // The failed URL would fail again; ask yt-dlp for a new one.
+    if (isYouTube && trackId && failedStream.current === trackId) { setReload((value) => value + 1); return }
     void element.play().catch((error: DOMException) => {
-      if (error.name !== "AbortError") onError(isYouTube ? "Não foi possível reproduzir o stream. Tente tocar novamente para atualizar o link." : "Não foi possível reproduzir. Verifique se o arquivo existe e se o formato é compatível.")
+      if (error.name === "AbortError") return
+      if (isYouTube) failedStream.current = trackId
+      onError(isYouTube ? `Não foi possível reproduzir o stream. Toque de novo para buscar o áudio outra vez. ${YT_DLP_UPDATE_HINT}` : "Não foi possível reproduzir. Verifique se o arquivo existe e se o formato é compatível.")
     })
   }
 
@@ -116,12 +126,16 @@ export function Player({ ref, onPlayingChange, track, request, liked, volume, mo
       element.src = src
       element.load()
       void element.play().catch((error: DOMException) => {
-        if (active && error.name !== "AbortError") onError(isYouTube ? "Não foi possível reproduzir o stream deste vídeo. Ele pode estar indisponível." : "Não foi possível reproduzir. Verifique se o arquivo existe e se o formato é compatível.")
+        if (!active || error.name === "AbortError") return
+        if (isYouTube) failedStream.current = trackId
+        onError(isYouTube ? `Não foi possível reproduzir o stream deste vídeo. Ele pode estar indisponível. ${YT_DLP_UPDATE_HINT}` : "Não foi possível reproduzir. Verifique se o arquivo existe e se o formato é compatível.")
       })
     }
     if (isYouTube) {
       setResolving(true)
-      window.desktop?.resolveYoutube(trackId).then(({ url, isLive }) => {
+      const fresh = failedStream.current === trackId
+      failedStream.current = undefined
+      window.desktop?.resolveYoutube(trackId, fresh).then(({ url, isLive }) => {
         if (!active) return
         setResolving(false)
         setLive(isLive)
@@ -132,12 +146,12 @@ export function Player({ ref, onPlayingChange, track, request, liked, volume, mo
         setResolving(false)
         // The main process explains known cases: no ffmpeg, a scheduled or
         // ended live, private or region-blocked videos.
-        onError(errorMessage(error, "Não foi possível obter o áudio deste vídeo do YouTube. Ele pode estar indisponível ou o yt-dlp não está instalado."))
+        onError(errorMessage(error, `Não foi possível obter o áudio deste vídeo do YouTube. Ele pode estar indisponível ou o yt-dlp não está instalado. ${YT_DLP_UPDATE_HINT}`))
       })
     } else if (source) start(source)
     return () => { active = false; window.clearTimeout(retryTimer.current); element.pause() }
     // openLive only touches refs and state setters, so it is not a dependency.
-  }, [trackId, source, isYouTube, request, onError])
+  }, [trackId, source, isYouTube, request, reload, onError])
 
   useEffect(() => { if (audio.current) audio.current.volume = volume }, [volume])
 
@@ -173,7 +187,8 @@ export function Player({ ref, onPlayingChange, track, request, liked, volume, mo
         // A paused live has no src on purpose; only a live that was playing reconnects.
         if (live) { if (event.currentTarget.getAttribute("src")) reconnectLive(); return }
         setPlaying(false); setBuffering(false)
-        if (track) onError(isYouTube ? `Não foi possível reproduzir o stream de “${track.title}”. O link pode ter expirado; toque novamente para atualizar.` : isTorrent ? `Não foi possível reproduzir “${track.title}” pelo torrent. Ele pode estar sem seeds; pare os torrents e tente outro resultado.` : `Não foi possível abrir “${track.title}”. O arquivo pode ter sido movido ou usar um formato não compatível.`)
+        if (track && isYouTube) failedStream.current = track.id
+        if (track) onError(isYouTube ? `Não foi possível reproduzir “${track.title}”. Toque de novo para buscar o áudio outra vez. ${YT_DLP_UPDATE_HINT}` : isTorrent ? `Não foi possível reproduzir “${track.title}” pelo torrent. Ele pode estar sem seeds; pare os torrents e tente outro resultado.` : `Não foi possível abrir “${track.title}”. O arquivo pode ter sido movido ou usar um formato não compatível.`)
       }}
       onEnded={() => {
         // A live never ends on its own: reconnect instead of moving on.

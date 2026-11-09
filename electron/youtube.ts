@@ -2,6 +2,7 @@ import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 import { createHash } from "node:crypto"
 import type { Track, YouTubeResolved } from "../shared/types.ts"
+import { YT_DLP_UPDATE_HINT } from "../shared/messages.ts"
 
 const execFileAsync = promisify(execFile)
 
@@ -126,7 +127,8 @@ export function parseMetadata(payload: string, limit = MAX_PLAYLIST_ENTRIES): { 
 type ExecError = Error & { code?: string; killed?: boolean; stderr?: string }
 
 // yt-dlp's English errors for the cases a listener can act on, most
-// specific first. Anything else is shown as yt-dlp wrote it.
+// specific first. Anything else is shown as yt-dlp wrote it, with a hint to
+// update yt-dlp: unrecognized failures usually mean YouTube changed.
 const KNOWN_ERRORS: [RegExp, string][] = [
   [/live event will begin|premieres in|scheduled to start/i, "Esta transmissão ainda não começou. Tente de novo quando ela estiver ao vivo."],
   [/live stream recording is not available|live event has ended|this live stream has ended/i, "Esta transmissão terminou e a gravação não está disponível."],
@@ -138,7 +140,7 @@ const KNOWN_ERRORS: [RegExp, string][] = [
 ]
 
 export function describeYtDlpError(details: string): string {
-  return KNOWN_ERRORS.find(([pattern]) => pattern.test(details))?.[1] ?? details
+  return KNOWN_ERRORS.find(([pattern]) => pattern.test(details))?.[1] ?? `${details} ${YT_DLP_UPDATE_HINT}`
 }
 
 async function ytDlp(arguments_: string[]) {
@@ -149,7 +151,7 @@ async function ytDlp(arguments_: string[]) {
     if (error.code === "ENOENT") throw new Error("O yt-dlp não foi encontrado. Instale-o (por exemplo, pipx install yt-dlp ou baixe o binário) e reinicie o aplicativo.")
     if (error.killed) throw new Error("A leitura dos metadados do YouTube demorou demais e foi cancelada.")
     const details = String(error.stderr || error.message || "").split(/\r?\n/).filter((line) => line.startsWith("ERROR")).join(" ").trim()
-    throw new Error(details ? describeYtDlpError(details) : "Não foi possível ler os metadados deste link do YouTube.")
+    throw new Error(details ? describeYtDlpError(details) : `Não foi possível ler os metadados deste link do YouTube. ${YT_DLP_UPDATE_HINT}`)
   }
 }
 
@@ -163,7 +165,7 @@ export async function fetchVideos(target: YouTubeTarget) {
 export function parseResolved(stdout: unknown): YouTubeResolved {
   const lines = String(stdout ?? "").trim().split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
   const url = lines.at(-1)
-  if (!url || !/^https:\/\//.test(url)) throw new Error("Não foi possível obter o áudio deste vídeo. Ele pode ser privado, com restrição de idade ou indisponível.")
+  if (!url || !/^https:\/\//.test(url)) throw new Error(`Não foi possível obter o áudio deste vídeo. Ele pode ser privado, com restrição de idade ou indisponível. ${YT_DLP_UPDATE_HINT}`)
   return { url, isLive: lines.at(-2) === "is_live" }
 }
 

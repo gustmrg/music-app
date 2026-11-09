@@ -49,3 +49,19 @@ The app does not update itself. To update, install the latest release over the p
 ## YouTube
 
 Importing YouTube links requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) to be installed on your system and available on the `PATH`. Livestreams also need [ffmpeg](https://ffmpeg.org) on the `PATH` (for example `sudo apt install ffmpeg` or `brew install ffmpeg`), which turns the stream into audio the player can use. The rest of the app works without either.
+
+### Keep yt-dlp up to date
+
+YouTube changes how it serves video often, and yt-dlp releases fixes within days. An outdated yt-dlp is the most common reason YouTube tracks that used to play start failing: playback may stop right away, fail to load, or report that no format is available. When a YouTube track fails, the app suggests updating yt-dlp.
+
+Update it with the same tool you installed it with:
+
+| Installed with | Update command |
+| --- | --- |
+| Standalone binary from the yt-dlp releases | `yt-dlp -U` |
+| pipx | `pipx upgrade yt-dlp` |
+| pip | `python3 -m pip install -U yt-dlp` |
+| Homebrew | `brew upgrade yt-dlp` |
+| winget | `winget upgrade yt-dlp` |
+
+Linux distribution packages (`apt`, `dnf`) often lag behind; if updating through them does not help, install yt-dlp with pipx or the standalone binary instead. Check the installed version with `yt-dlp --version`. You do not need to restart the app after updating: playing the failed track again asks yt-dlp for a new stream.

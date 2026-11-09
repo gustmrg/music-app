@@ -39,6 +39,7 @@ electron/
 shared/
   types.ts           data shared by the main process and the interface
   ipc.ts             the IPC contract and the window.desktop API
+  messages.ts        interface text used by both the main process and the interface
 dist-electron/       bundled main.cjs and preload.cjs (generated)
 build/
   icon.png           app icon used by electron-builder

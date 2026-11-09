@@ -18,7 +18,7 @@ Um player de música para o desktop construído em torno da sua própria bibliot
 
 ## Instalação
 
-Baixe o instalador na página de [Releases](https://github.com/gustmrg/music-app/releases) (macOS arm64, Windows x64 e Linux x64). O YouTube exige o [yt-dlp](https://github.com/yt-dlp/yt-dlp) instalado no sistema, e o Descobrir exige uma instância do Prowlarr ou do Jackett.
+Baixe o instalador na página de [Releases](https://github.com/gustmrg/music-app/releases) (macOS arm64, Windows x64 e Linux x64). O YouTube exige o [yt-dlp](https://github.com/yt-dlp/yt-dlp) instalado e atualizado no sistema ([como atualizar](docs/installation.md#keep-yt-dlp-up-to-date)), e o Descobrir exige uma instância do Prowlarr ou do Jackett.
 
 > [!IMPORTANT]
 > Os aplicativos **não são assinados**. macOS e Windows mostram um aviso na primeira abertura; veja como liberar em [Installation](docs/installation.md#unsigned-app).
