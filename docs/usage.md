@@ -35,6 +35,7 @@ The original files are never copied, moved, edited, or deleted. The library (inc
 - Selectable extensions: MP3, WAV, FLAC, OGG, Opus, M4A, AAC, and WebM. Playback depends on the codecs in the Electron version and on the file contents; errors appear in the interface.
 - Files opened individually (outside a watched folder) are not watched: if they are moved or deleted, they stay referenced and fail when played. Add them again from their current location.
 - Folders added before watching existed are not watched until you add them again; their tracks are not duplicated.
+- When a watched folder disappears (a disconnected disk, or a folder deleted and created again), changes in it may take up to a minute to appear after it comes back.
 - A file that is copied (rather than moved) to replace a deleted one usually gets a new modification time and is imported as a new track.
 - Playlists import only local references, with no streaming URLs or network shares. Older M3U files in another encoding must be converted to UTF-8.
 - The same track appears once per playlist. Directory symbolic links are not followed.

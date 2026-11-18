@@ -6,6 +6,7 @@ import path from "node:path"
 import os from "node:os"
 import { FolderWatchers } from "./folders.ts"
 import type { Watch } from "./folders.ts"
+import { isWithin } from "./library.ts"
 
 type FakeWatcher = { folder: string; emit: (filename: string | null) => void; fail: (error: Error) => void; closed: boolean }
 
@@ -124,15 +125,69 @@ test("closes the watcher when the watched folder itself disappears", async (t) =
   assert.equal(watchers.length, 2)
 })
 
-test("detects files copied into a real folder", async (t) => {
+test("restarts a watcher that reports the watched folder by its absolute path", (t) => {
+  const { watchers, changes, folders } = setup(t)
+  folders.sync([root])
+  // Windows does this, endlessly, once the watched folder is deleted.
+  for (let i = 0; i < 1000; i++) watchers[0].emit(path.resolve(root))
+  assert.equal(watchers[0].closed, true)
+  t.mock.timers.tick(30_000)
+  assert.deepEqual(changes, [])
+  t.mock.timers.tick(30_000)
+  assert.equal(watchers.length, 2)
+  // Late events from the old watcher do not affect the new one.
+  watchers[0].emit(path.resolve(root))
+  assert.equal(watchers[1].closed, false)
+  t.mock.timers.tick(2000)
+  assert.deepEqual(changes, [[root, [root]]])
+})
+
+// Collects reports from real watchers so a test can await the next one.
+function reports() {
+  const pending: [string, string[]][] = []
+  let wake = () => {}
+  return {
+    onChange: (folder: string, scopes: string[]) => { pending.push([folder, scopes]); wake() },
+    async next(): Promise<[string, string[]]> {
+      while (!pending.length) await new Promise<void>((resolve) => { wake = resolve })
+      return pending.shift()!
+    },
+  }
+}
+
+async function realFolder(t: TestContext) {
   const folder = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "local-music-watch-")))
   t.after(() => fs.rm(folder, { recursive: true, force: true }))
+  return folder
+}
+
+test("detects files copied into a real folder", async (t) => {
+  const folder = await realFolder(t)
   await fs.mkdir(path.join(folder, "Álbum"))
-  let report: (value: [string, string[]]) => void = () => {}
-  const reported = new Promise<[string, string[]]>((resolve) => { report = resolve })
-  const watchers = new FolderWatchers({ debounceMs: 50, onChange: (changed, scopes) => report([changed, scopes]) })
+  const { onChange, next } = reports()
+  const watchers = new FolderWatchers({ debounceMs: 50, onChange })
   t.after(() => watchers.close())
   watchers.sync([folder])
-  await fs.writeFile(path.join(folder, "Álbum", "01.mp3"), "audio")
-  assert.deepEqual(await reported, [folder, [path.join(folder, "Álbum")]])
+  const file = path.join(folder, "Álbum", "01.mp3")
+  await fs.writeFile(file, "audio")
+  const [changed, scopes] = await next()
+  assert.equal(changed, folder)
+  // Windows also reports the album folder itself, so the scope can be wider.
+  assert.ok(scopes.some((scope) => isWithin(scope, file)), `${scopes.join(", ")} should cover ${file}`)
+})
+
+test("detects files in a real folder that was deleted and created again", { skip: process.platform !== "win32" && "reproduces Windows fs.watch behavior", timeout: 20_000 }, async (t) => {
+  const folder = await realFolder(t)
+  const { onChange, next } = reports()
+  const watchers = new FolderWatchers({ debounceMs: 50, retryMs: 100, onChange })
+  t.after(() => watchers.close())
+  watchers.sync([folder])
+  await fs.rm(folder, { recursive: true })
+  await fs.mkdir(folder)
+  // Once watched again, the whole folder is reconciled.
+  while (!(await next())[1].includes(folder)) { /* reports from the deletion */ }
+  const file = path.join(folder, "01.mp3")
+  await fs.writeFile(file, "audio")
+  const [, scopes] = await next()
+  assert.ok(scopes.some((scope) => isWithin(scope, file)), `${scopes.join(", ")} should cover ${file}`)
 })

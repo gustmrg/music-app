@@ -59,7 +59,7 @@ export class FolderWatchers {
 
   #start(folder: string, entry: Entry, resumed: boolean) {
     try {
-      const watcher = this.#options.watch(folder, (_event, filename) => this.#event(folder, entry, filename))
+      const watcher: Watcher = this.#options.watch(folder, (_event, filename) => this.#event(folder, entry, watcher, filename))
       watcher.on("error", (error) => {
         console.warn(`Stopped watching ${folder}:`, error.message)
         this.#retry(folder, entry)
@@ -83,7 +83,16 @@ export class FolderWatchers {
     }, this.#options.retryMs)
   }
 
-  #event(folder: string, entry: Entry, filename: string | null) {
+  #event(folder: string, entry: Entry, watcher: Watcher, filename: string | null) {
+    // Events can still arrive from a watcher that was closed or replaced.
+    if (entry.watcher !== watcher) return
+    // On Windows, once the watched folder is deleted, its watcher reports the
+    // folder's absolute path thousands of times per second and never reports
+    // an error or new files, even after the folder is created again.
+    if (filename && path.isAbsolute(filename)) {
+      this.#retry(folder, entry)
+      return
+    }
     const target = filename ? path.join(folder, filename) : folder
     if (target === folder || !isWithin(folder, target)) {
       // The folder itself changed. When it is gone, its watcher is dead, so
