@@ -22,7 +22,8 @@ export interface InvokeChannels {
   // Removes tracks whose files left a watched folder; files are not touched.
   "library:remove-missing": { args: []; result: MissingRemoved }
   "youtube:add": { args: [text: string, name?: string]; result: ImportResult }
-  "youtube:resolve": { args: [id: string]; result: YouTubeResolved }
+  // fresh skips the cached stream URL, e.g. after it failed to play.
+  "youtube:resolve": { args: [id: string, fresh?: boolean]; result: YouTubeResolved }
   "discover:search": { args: [query: string]; result: { results: DiscoverResult[] } }
   "discover:test": { args: [settings: DiscoverSettings]; result: DiscoverTest }
   "torrent:expand": { args: [source: string]; result: TorrentExpansion }

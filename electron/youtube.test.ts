@@ -1,6 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { matchYouTubeUrl, parseYouTubeLinks, parseMetadata, parseResolved, isLiveInfo, describeYouTube, describeYtDlpError, isYouTubeTrackPath, MAX_PLAYLIST_ENTRIES, STREAM_FORMAT } from "./youtube.ts"
+import { YT_DLP_UPDATE_HINT } from "../shared/messages.ts"
 
 test("recognizes watch, shorts, live, embed, music, and playlist links and canonicalizes them", () => {
   assert.deepEqual(matchYouTubeUrl("https://www.youtube.com/watch?si=x&v=dQw4w9WgXcQ"), { kind: "video", id: "dQw4w9WgXcQ", url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" })
@@ -83,6 +84,8 @@ test("parses the resolved stream URL and live status", () => {
   assert.equal(parseResolved("https://example.googlevideo.com/a").isLive, false)
   assert.throws(() => parseResolved("is_live\nNA"), /obter o áudio/)
   assert.throws(() => parseResolved(""), /obter o áudio/)
+  // No URL at all is what an outdated yt-dlp tends to produce.
+  assert.throws(() => parseResolved(""), (error: Error) => error.message.includes(YT_DLP_UPDATE_HINT))
 })
 
 test("prefers audio-only formats and falls back to the smallest live variant", () => {
@@ -136,6 +139,16 @@ test("explains the yt-dlp errors a listener can act on", () => {
     ["ERROR: [youtube] abc: Join this channel to get access to members-only content like this video", /membros/],
     ["ERROR: [youtube] abc: Video unavailable. This video has been removed by the uploader", /não está mais disponível/],
   ]
-  for (const [details, expected] of cases) assert.match(describeYtDlpError(details), expected, details)
-  assert.equal(describeYtDlpError("ERROR: something new"), "ERROR: something new")
+  for (const [details, expected] of cases) {
+    const message = describeYtDlpError(details)
+    assert.match(message, expected, details)
+    // These are about the video itself; updating yt-dlp would not help.
+    assert.ok(!message.includes(YT_DLP_UPDATE_HINT), details)
+  }
+})
+
+test("suggests updating yt-dlp for errors it does not recognize", () => {
+  const message = describeYtDlpError("ERROR: [youtube] abc: Requested format is not available")
+  assert.ok(message.startsWith("ERROR: [youtube] abc: Requested format is not available"))
+  assert.ok(message.endsWith(YT_DLP_UPDATE_HINT))
 })
