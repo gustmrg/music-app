@@ -1,5 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
-import { ArrowDown, ArrowUp, Clock3, Compass, Disc3, FileAudio, Folder, FolderPlus, Heart, Library as LibraryIcon, LayoutGrid, List, Settings2, ListMusic, ListPlus, Maximize2, Minus, Music2, Pencil, Play, Plus, Search, Tags, Trash2, Upload, X, Youtube } from "lucide-react"
+import { ArrowDown, ArrowUp, Clock3, Compass, Disc3, EyeOff, FileAudio, Folder, FolderPlus, FolderSync, Heart, Library as LibraryIcon, LayoutGrid, List, Settings2, ListMusic, ListPlus, Maximize2, Minus, Music2, Pencil, Play, Plus, Search, Tags, Trash2, Upload, X, Youtube } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
@@ -10,7 +10,7 @@ import { TrackTable } from "@/components/TrackTable"
 import { LibraryFilters, applyFilters, emptyFilters, type Filters } from "@/components/LibraryFilters"
 import { SettingsDialog, type SettingsSection } from "@/components/SettingsDialog"
 import { TagEditor } from "@/components/TagEditor"
-import { albumKey, applyTagEdit, audioExtensions, buildAlbums, emptyLibrary, errorMessage, filterTracks, folderName, normalize, type ImportResult, type Library, type Playlist, type TagEdit, type TorrentProgress, type TorrentSaved, type Track } from "@/library"
+import { albumKey, applyTagEdit, audioExtensions, buildAlbums, emptyLibrary, errorMessage, filterTracks, folderName, normalize, remapTrackIds, type ImportResult, type Library, type Playlist, type TagEdit, type TorrentProgress, type TorrentSaved, type Track } from "@/library"
 
 type View = "library" | "albums" | "folders" | "playlists" | "liked" | "recent" | "discover"
 const navigationGroups = [
@@ -79,6 +79,17 @@ export default function App() {
     return subscribe((tracks) => setLibrary((value) => ({ ...value, tracks })))
   }, [])
 
+  // Files renamed or moved inside a watched folder get new ids; favorites,
+  // playlists, and the queue follow them before the next preferences save.
+  useEffect(() => {
+    const subscribe = window.desktop?.onLibraryMoved
+    if (!subscribe) return
+    return subscribe((moved) => {
+      setLibrary((value) => remapTrackIds(value, moved))
+      setQueue((ids) => [...new Set(ids.map((id) => Object.hasOwn(moved, id) ? moved[id] : id))])
+    })
+  }, [])
+
   useEffect(() => () => { for (const track of browserTracks.current.values()) if (track.url) URL.revokeObjectURL(track.url) }, [])
 
   // Torrent tracks exist only for this session: they are registered here when
@@ -122,6 +133,7 @@ export default function App() {
     return [...counts].sort(([a], [b]) => a.localeCompare(b, "pt-BR"))
   }, [tracks])
 
+  const missingCount = useMemo(() => tracks.filter((track) => track.missing).length, [tracks])
   const navigate = (next: View) => { setView(next); setFolder(null); setPlaylistId(""); setAlbumId(""); setSearch(""); setSelected(new Set()) }
   const play = (id: string, ids?: string[]) => {
     if (ids) setQueue(ids)
@@ -197,7 +209,7 @@ export default function App() {
   }
 
   const acceptImport = (result: ImportResult) => {
-    setLibrary((value) => ({ ...value, tracks: result.tracks, playlists: result.playlist ? [...value.playlists, result.playlist] : value.playlists }))
+    setLibrary((value) => ({ ...value, tracks: result.tracks, playlists: result.playlist ? [...value.playlists, result.playlist] : value.playlists, watchedFolders: result.watchedFolders ?? value.watchedFolders }))
     if (result.playlist) { setView("playlists"); setPlaylistId(result.playlist.id); setSearch("") }
     notify(`${result.imported.length} música(s) lida(s).${result.skipped ? ` ${result.skipped} item(ns) indisponível(is) ou não local(is) ignorado(s).` : ""}`)
   }
@@ -209,6 +221,24 @@ export default function App() {
       if (result) acceptImport(result)
     } catch { notify("Não foi possível ler a seleção. Verifique as permissões e tente novamente.") }
     finally { setBusy(false) }
+  }
+  const unwatchFolder = async (folder: string) => {
+    try {
+      const watchedFolders = await window.desktop?.unwatchFolder(folder)
+      if (watchedFolders) setLibrary((value) => ({ ...value, watchedFolders }))
+      notify(`“${folderName(folder)}” não é mais monitorada. As músicas dela continuam na biblioteca.`)
+    } catch { notify("Não foi possível parar de monitorar a pasta.") }
+  }
+  const removeMissing = async () => {
+    if (!window.desktop || !window.confirm(`Remover ${missingCount} música(s) indisponível(is) da biblioteca? Elas também saem das playlists e dos favoritos. Nenhum arquivo é apagado.`)) return
+    try {
+      const { tracks, removed } = await window.desktop.removeMissing()
+      const gone = new Set(removed)
+      const keep = (ids: string[]) => ids.filter((id) => !gone.has(id))
+      setLibrary((value) => ({ ...value, tracks, liked: keep(value.liked), recent: keep(value.recent), playlists: value.playlists.map((playlist) => ({ ...playlist, trackIds: keep(playlist.trackIds) })), tagEdits: Object.fromEntries(Object.entries(value.tagEdits).filter(([id]) => !gone.has(id))) }))
+      setQueue((ids) => keep(ids))
+      notify(`${removed.length} música(s) indisponível(is) removida(s) da biblioteca. Nenhum arquivo foi apagado.`)
+    } catch { notify("Não foi possível remover as músicas indisponíveis.") }
   }
   const addYoutube = async () => {
     if (!window.desktop || !youtubeText.trim()) return
@@ -340,9 +370,14 @@ export default function App() {
           setTorrentProgress((items) => new Map([...items].filter(([key]) => infoHash && key !== infoHash)))
         }} notify={notify} /></div>{view !== "discover" ? <>
         <div className="page-heading">{selectedAlbum ? <Cover cover={selectedAlbum.cover} size="large" album /> : null}<div><p className="eyebrow">{selectedPlaylist ? "PLAYLIST LOCAL" : selectedAlbum ? "ÁLBUM" : "DO SEU COMPUTADOR"}</p><h1>{title}</h1><p className="page-subtitle">{busy ? "Lendo arquivos…" : !loaded ? "Carregando biblioteca…" : showFolders ? `${folders.length} pasta(s) com músicas` : showPlaylists ? `${playlists.length} playlist(s) salvas` : showAlbums ? `${albums.length} álbum(ns)` : selectedAlbum ? [selectedAlbum.artist, selectedAlbum.year, `${visibleTracks.length} música(s)`, albumDuration ? `${albumDuration} min` : ""].filter(Boolean).join(" · ") : `${visibleTracks.length} música(s)`}</p></div>
-          <div className="page-actions">{showPlaylists ? <><Button disabled={!loaded} onClick={() => openEditor()}><Plus />Nova playlist</Button>{window.desktop ? <Button variant="outline" disabled={busy || !loaded} onClick={() => void importLocal("playlist")}><Upload />Importar M3U</Button> : null}</> : !showCollection ? <><div className="view-toggle" role="group" aria-label="Visualização das músicas"><Button variant={viewMode === "list" ? "secondary" : "ghost"} size="icon" aria-label="Visualização em lista" aria-pressed={viewMode === "list"} onClick={() => setLibrary((value) => ({ ...value, viewMode: "list" }))}><List /></Button><Button variant={viewMode === "grid" ? "secondary" : "ghost"} size="icon" aria-label="Visualização em grade" aria-pressed={viewMode === "grid"} onClick={() => setLibrary((value) => ({ ...value, viewMode: "grid" }))}><LayoutGrid /></Button></div><Button disabled={!visibleTracks.length} onClick={() => play(visibleTracks[0].id, visibleTracks.map((track) => track.id))}><Play fill="currentColor" />Reproduzir</Button>{selectedPlaylist ? <><Button variant="outline" onClick={() => openEditor(selectedPlaylist)}><Pencil />Editar</Button>{window.desktop ? <Button variant="outline" disabled={busy} onClick={() => void exportPlaylist()}><Upload />Exportar</Button> : null}</> : <Button variant="outline" disabled={!visibleTracks.length} onClick={() => openEditor(undefined, visibleTracks.map((track) => track.id))}><Plus />Salvar playlist</Button>}</> : null}</div>
+          <div className="page-actions">{showPlaylists ? <><Button disabled={!loaded} onClick={() => openEditor()}><Plus />Nova playlist</Button>{window.desktop ? <Button variant="outline" disabled={busy || !loaded} onClick={() => void importLocal("playlist")}><Upload />Importar M3U</Button> : null}</> : !showCollection ? <><div className="view-toggle" role="group" aria-label="Visualização das músicas"><Button variant={viewMode === "list" ? "secondary" : "ghost"} size="icon" aria-label="Visualização em lista" aria-pressed={viewMode === "list"} onClick={() => setLibrary((value) => ({ ...value, viewMode: "list" }))}><List /></Button><Button variant={viewMode === "grid" ? "secondary" : "ghost"} size="icon" aria-label="Visualização em grade" aria-pressed={viewMode === "grid"} onClick={() => setLibrary((value) => ({ ...value, viewMode: "grid" }))}><LayoutGrid /></Button></div><Button disabled={!visibleTracks.length} onClick={() => play(visibleTracks[0].id, visibleTracks.map((track) => track.id))}><Play fill="currentColor" />Reproduzir</Button>{selectedPlaylist ? <><Button variant="outline" onClick={() => openEditor(selectedPlaylist)}><Pencil />Editar</Button>{window.desktop ? <Button variant="outline" disabled={busy} onClick={() => void exportPlaylist()}><Upload />Exportar</Button> : null}</> : <Button variant="outline" disabled={!visibleTracks.length} onClick={() => openEditor(undefined, visibleTracks.map((track) => track.id))}><Plus />Salvar playlist</Button>}</> : showFolders && missingCount ? <Button variant="outline" disabled={busy} onClick={() => void removeMissing()}><Trash2 />Remover {missingCount} indisponível(is)</Button> : null}</div>
         </div>
         {view === "library" && tracks.length ? <LibraryFilters tracks={tracks} filters={filters} onChange={setFilters} /> : null}
+        {showFolders && window.desktop && library.watchedFolders.length ? <section className="watched-folders" aria-labelledby="watched-folders-title">
+          <h2 id="watched-folders-title"><FolderSync size={16} />Pastas monitoradas</h2>
+          <p className="muted">Músicas adicionadas, alteradas ou removidas nestas pastas atualizam a biblioteca sozinhas. Arquivos removidos ficam marcados como indisponíveis.</p>
+          <ul>{library.watchedFolders.map((watched) => <li key={watched}><span title={watched}>{watched}</span><Button variant="ghost" size="sm" aria-label={`Parar de monitorar ${watched}`} onClick={() => void unwatchFolder(watched)}><EyeOff />Parar de monitorar</Button></li>)}</ul>
+        </section> : null}
         {showFolders ? <div className="collection-grid">{visibleFolders.map(([name, count]) => <button className="collection-card" key={name} onClick={() => { setFolder(name); setSearch("") }}><Folder size={30} /><strong>{folderName(name)}</strong><span title={name}>{name || "Arquivos avulsos"}</span><small>{count} música(s)</small></button>)}</div> : showPlaylists ? <div className="collection-grid">{visiblePlaylists.map((playlist) => <button className="collection-card" key={playlist.id} onClick={() => { setPlaylistId(playlist.id); setSearch("") }}><ListMusic size={30} /><strong>{playlist.name}</strong><small>{playlist.trackIds.length} música(s)</small></button>)}</div> : showAlbums ? <div className="collection-grid album-grid">{visibleAlbums.map((album) => <button className="collection-card album-card" key={album.key} onClick={() => { setAlbumId(album.key); setSearch(""); setSelected(new Set()) }}><Cover cover={album.cover} size="large" album /><strong title={album.title}>{album.title}</strong><span>{album.artist || "Artista desconhecido"}</span><small>{[album.year, `${album.trackIds.length} música(s)`].filter(Boolean).join(" · ")}</small></button>)}</div> : visibleTracks.length ? <TrackTable tracks={visibleTracks} currentId={selection.id} playing={playing} viewMode={viewMode} likedIds={likedIds} selected={selected} onSelectionChange={setSelected} onPlay={(id) => { if (id === selection.id) playerControls.current?.toggle(); else play(id, visibleTracks.map((item) => item.id)) }} onToggleLike={toggleLike} albumNumbering={!!selectedAlbum} extraActions={selectedPlaylist ? (track) => <><Button variant="ghost" size="icon-xs" disabled={selectedPlaylist.trackIds.indexOf(track.id) === 0} aria-label={`Mover ${track.title} para cima`} onClick={() => reorder(track.id, -1)}><ArrowUp /></Button><Button variant="ghost" size="icon-xs" disabled={selectedPlaylist.trackIds.indexOf(track.id) === selectedPlaylist.trackIds.length - 1} aria-label={`Mover ${track.title} para baixo`} onClick={() => reorder(track.id, 1)}><ArrowDown /></Button></> : undefined} /> : null}
         {selectedIds.length ? <div className="selection-bar" role="toolbar" aria-label="Ações para as músicas selecionadas">
           <strong>{selectedIds.length} selecionada(s)</strong>

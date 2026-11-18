@@ -41,8 +41,11 @@ const desktop: DesktopApi = {
   saveTorrent: (source, fileIndexes) => invoke("torrent:save", source, fileIndexes),
   saveTorrentTrack: (id) => invoke("torrent:save-track", id),
   chooseSaveFolder: () => invoke("library:save-folder"),
+  unwatchFolder: (folder) => invoke("library:unwatch-folder", folder),
+  removeMissing: () => invoke("library:remove-missing"),
   onTorrentSaved: subscribe("torrent:saved"),
   onLibraryTracks: subscribe("library:tracks"),
+  onLibraryMoved: subscribe("library:moved"),
   onTorrentProgress: subscribe("torrent:progress"),
 }
 

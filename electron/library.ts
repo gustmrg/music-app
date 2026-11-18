@@ -2,7 +2,7 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { createHash, randomUUID } from "node:crypto"
 import { fileURLToPath } from "node:url"
-import type { ImportResult, Library, Preferences, TagEdit, Track } from "../shared/types.ts"
+import type { ImportResult, Library, MissingRemoved, Preferences, TagEdit, Track } from "../shared/types.ts"
 import type { TrackFiles } from "./audio.ts"
 import { describeYouTube, isYouTubeTrackPath } from "./youtube.ts"
 import type { YouTubeVideoInput } from "./youtube.ts"
@@ -15,10 +15,47 @@ type Loose = Record<string, any>
 type LibraryOptions = { defaultSaveFolder?: string; coversDir?: string }
 
 const TAG_READ_CONCURRENCY = 8
+const STAT_CONCURRENCY = 32
 
 export const AUDIO_EXTENSIONS = ["mp3", "wav", "flac", "ogg", "opus", "m4a", "aac", "webm"]
 const isAudio = (file: string) => AUDIO_EXTENSIONS.includes(path.extname(file).slice(1).toLowerCase())
 const isLocal = (file: unknown): file is string => typeof file === "string" && !/^[a-z][a-z\d+.-]*:/i.test(file.replace(/^[a-z]:[\\/]/i, "")) && !/^[\\/]{2}/.test(file)
+
+// Whether file is folder itself or inside it.
+export const isWithin = (folder: string, file: string) => file === folder || file.startsWith(folder.endsWith(path.sep) ? folder : folder + path.sep)
+
+// Audio files under a folder, without following directory symlinks. Folders
+// that cannot be read are reported, so their tracks are not taken as removed.
+async function walkAudio(folder: string): Promise<{ files: string[]; failed: string[] }> {
+  const files: string[] = []
+  const failed: string[] = []
+  const walk = async (directory: string) => {
+    let entries
+    try { entries = await fs.readdir(directory, { withFileTypes: true }) } catch { failed.push(directory); return }
+    for (const entry of entries) {
+      const file = path.join(directory, entry.name)
+      if (entry.isDirectory()) await walk(file)
+      else if (entry.isFile() && isAudio(file)) files.push(file)
+    }
+  }
+  await walk(folder)
+  return { files, failed }
+}
+
+const isDirectory = async (folder: string) => {
+  try { return (await fs.stat(folder)).isDirectory() } catch { return false }
+}
+
+// Keeps only the outermost folders: a folder inside another is already covered.
+export function outermostFolders(folders: readonly string[]): string[] {
+  const unique = [...new Set(folders)].sort((a, b) => a.length - b.length)
+  return unique.filter((folder, index) => !unique.slice(0, index).some((other) => isWithin(other, folder)))
+}
+
+const cleanWatchedFolders = (value: unknown): string[] =>
+  outermostFolders(Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && path.isAbsolute(item) && isLocal(item)) : [])
+
+const fileStamp = (stat: { size: number; mtimeMs: number }) => ({ size: stat.size, modifiedAt: Math.trunc(stat.mtimeMs) })
 
 export function playlistPaths(text: string, playlistFile: string): string[] {
   return text.replace(/^\uFEFF/, "").split(/\r?\n/).flatMap((line) => {
@@ -63,6 +100,7 @@ export class LocalLibrary implements TrackFiles {
   defaultSaveFolder: string
   coversDir: string
   saveFolder = ""
+  watchedFolders: string[] = []
   tracks = new Map<string, Track>()
   preferences = cleanPreferences({}, [])
   writes: Promise<void> = Promise.resolve()
@@ -87,11 +125,14 @@ export class LocalLibrary implements TrackFiles {
         // they were never scanned (libraries saved before tags existed).
         const item: Track = { ...this.describe(track.path), ...cleanTags(track), addedAt: Number.isSafeInteger(track.addedAt) ? track.addedAt : 0 }
         if (track.scanned === true) item.scanned = true
+        if (Number.isSafeInteger(track.size) && track.size >= 0 && Number.isSafeInteger(track.modifiedAt)) Object.assign(item, { size: track.size, modifiedAt: track.modifiedAt })
+        if (track.missing === true) item.missing = true
         this.tracks.set(item.id, item)
       }
     }
     this.preferences = cleanPreferences(saved, [...this.tracks.values()])
     this.saveFolder = cleanSaveFolder(saved.saveFolder)
+    this.watchedFolders = cleanWatchedFolders(saved.watchedFolders)
     return this.snapshot()
   }
 
@@ -105,7 +146,7 @@ export class LocalLibrary implements TrackFiles {
     }
   }
 
-  snapshot(): Library { return { tracks: [...this.tracks.values()], ...this.preferences, saveFolder: this.saveFolderPath() } }
+  snapshot(): Library { return { tracks: [...this.tracks.values()], ...this.preferences, saveFolder: this.saveFolderPath(), watchedFolders: [...this.watchedFolders] } }
 
   saveFolderPath(): string { return this.saveFolder || this.defaultSaveFolder }
 
@@ -131,10 +172,10 @@ export class LocalLibrary implements TrackFiles {
   }
 
   // Unreadable or untagged files still import; they just have no tags.
-  async withTags(track: Track): Promise<Track> {
+  async withTags(track: Track, stamp?: { size: number; modifiedAt: number }): Promise<Track> {
     let tags = {}
     try { tags = await readTags(track.path, this.coversDir) } catch { /* keep the file without tags */ }
-    return { ...track, ...tags, scanned: true }
+    return { ...track, ...tags, ...stamp, scanned: true }
   }
 
   async addFiles(files: readonly string[]): Promise<ImportResult> {
@@ -145,8 +186,10 @@ export class LocalLibrary implements TrackFiles {
       try {
         if (!isLocal(file) || !isAudio(file)) return null
         const canonical = await fs.realpath(file)
-        if (!isLocal(canonical) || !isAudio(canonical) || !(await fs.stat(canonical)).isFile()) return null
-        return await this.withTags(this.describe(canonical))
+        if (!isLocal(canonical) || !isAudio(canonical)) return null
+        const stat = await fs.stat(canonical)
+        if (!stat.isFile()) return null
+        return await this.withTags(this.describe(canonical), fileStamp(stat))
       } catch { return null }
     })
     for (const track of described) {
@@ -159,22 +202,119 @@ export class LocalLibrary implements TrackFiles {
     return { tracks: [...this.tracks.values()], imported: [...new Set(imported)], skipped }
   }
 
+  // Imports a folder and keeps watching it. Track paths are canonical, so
+  // the folder is stored canonical too and contains its tracks' paths.
   async addFolder(folder: string): Promise<ImportResult> {
-    const files: string[] = []
-    let skipped = 0
-    const walk = async (directory: string) => {
-      let entries
-      try { entries = await fs.readdir(directory, { withFileTypes: true }) } catch { skipped++; return }
-      for (const entry of entries) {
-        const file = path.join(directory, entry.name)
-        if (entry.isDirectory()) await walk(file)
-        else if (entry.isFile() && isAudio(file)) files.push(file)
+    let root = folder
+    try { root = await fs.realpath(folder) } catch { /* reported below as an unreadable folder */ }
+    const { files, failed } = await walkAudio(root)
+    files.sort((a, b) => a.localeCompare(b, "pt-BR", { numeric: true }))
+    if (isLocal(root) && path.isAbsolute(root) && !failed.includes(root)) this.watchedFolders = outermostFolders([...this.watchedFolders, root])
+    const result = await this.addFiles(files)
+    if (this.markMissing(root, new Set(files), failed)) await this.persist()
+    return { ...result, tracks: [...this.tracks.values()], skipped: result.skipped + failed.length, watchedFolders: [...this.watchedFolders] }
+  }
+
+  async unwatchFolder(folder: string): Promise<string[]> {
+    if (this.watchedFolders.includes(folder)) {
+      this.watchedFolders = this.watchedFolders.filter((item) => item !== folder)
+      await this.persist()
+    }
+    return [...this.watchedFolders]
+  }
+
+  // Marks tracks under a folder whose files were not found. Tracks in
+  // folders that could not be read are left as they are.
+  markMissing(folder: string, found: ReadonlySet<string>, failed: readonly string[]): boolean {
+    let changed = false
+    for (const track of this.tracks.values()) {
+      if (track.source || track.missing || !isWithin(folder, track.path) || found.has(track.path) || failed.some((directory) => isWithin(directory, track.path))) continue
+      this.tracks.set(track.id, { ...track, missing: true })
+      changed = true
+    }
+    return changed
+  }
+
+  // Brings the tracks under each scope (a watched folder or a folder inside
+  // one) in line with the disk: new files are imported, changed files have
+  // their tags read again, removed files are marked missing, and returning
+  // files are restored. A removed file that reappears elsewhere with the same
+  // size and modification time was renamed or moved, so the new track takes
+  // over its favorites, playlists, history, and tag edits. Nothing changes
+  // while a watched folder is unreachable, such as an unmounted disk.
+  async reconcile(scopes: readonly string[]): Promise<{ changed: boolean; moved: Record<string, string> }> {
+    let changed = false
+    const moved: Record<string, string> = {}
+    for (const scope of outermostFolders(scopes)) {
+      const root = this.watchedFolders.find((folder) => isWithin(folder, scope))
+      if (!root || !(await isDirectory(root))) continue
+      // A deleted folder is reconciled from its nearest remaining parent.
+      let directory = scope
+      while (directory !== root && !(await isDirectory(directory))) directory = path.dirname(directory)
+      const { files, failed } = await walkAudio(directory)
+      if (this.markMissing(directory, new Set(files), failed)) changed = true
+      const stats = await mapLimit(files, STAT_CONCURRENCY, async (file) => {
+        try { const stat = await fs.stat(file); return stat.isFile() ? fileStamp(stat) : null } catch { return null }
+      })
+      const pending: [string, { size: number; modifiedAt: number }][] = []
+      files.forEach((file, index) => {
+        const stamp = stats[index]
+        if (!stamp) return
+        const track = this.tracks.get(this.describe(file).id)
+        // Tracks saved before stamps existed keep their cached tags.
+        if (track && (track.size === undefined || (track.size === stamp.size && track.modifiedAt === stamp.modifiedAt))) {
+          if (track.missing || track.size === undefined) {
+            const { missing: _restored, ...rest } = track
+            this.tracks.set(track.id, { ...rest, ...stamp })
+            changed = true
+          }
+        } else pending.push([file, stamp])
+      })
+      const read = await mapLimit(pending, TAG_READ_CONCURRENCY, ([file, stamp]) => this.withTags(this.describe(file), stamp))
+      for (const track of read) {
+        const previous = this.tracks.get(track.id) ?? this.movedFrom(track)
+        track.addedAt = previous?.addedAt || Date.now()
+        if (previous && previous.id !== track.id) {
+          this.tracks.delete(previous.id)
+          this.remap(previous.id, track.id)
+          moved[previous.id] = track.id
+        }
+        this.tracks.set(track.id, track)
+        changed = true
       }
     }
-    await walk(folder)
-    files.sort((a, b) => a.localeCompare(b, "pt-BR", { numeric: true }))
-    const result = await this.addFiles(files)
-    return { ...result, skipped: result.skipped + skipped }
+    if (changed) await this.persist()
+    return { changed, moved }
+  }
+
+  // The single missing track with the same size, modification time, and
+  // format as a new file; ambiguous matches are treated as new files.
+  movedFrom(track: Track): Track | undefined {
+    const matches = [...this.tracks.values()].filter((item) => item.missing && !item.source && item.size === track.size && item.modifiedAt === track.modifiedAt && item.format === track.format)
+    return matches.length === 1 ? matches[0] : undefined
+  }
+
+  remap(from: string, to: string) {
+    const swap = (ids: string[]) => [...new Set(ids.map((id) => id === from ? to : id))]
+    const { [from]: edit, ...tagEdits } = this.preferences.tagEdits
+    this.preferences = {
+      ...this.preferences,
+      liked: swap(this.preferences.liked),
+      recent: swap(this.preferences.recent),
+      playlists: this.preferences.playlists.map((playlist) => ({ ...playlist, trackIds: swap(playlist.trackIds) })),
+      tagEdits: edit ? { ...tagEdits, [to]: edit } : tagEdits,
+    }
+  }
+
+  // Removing tracks from the library never touches files on disk.
+  async removeMissing(): Promise<MissingRemoved> {
+    const removed = [...this.tracks.values()].filter((track) => track.missing).map((track) => track.id)
+    if (removed.length) {
+      for (const id of removed) this.tracks.delete(id)
+      this.preferences = cleanPreferences(this.preferences, [...this.tracks.values()])
+      await this.persist()
+    }
+    return { tracks: [...this.tracks.values()], removed }
   }
 
   async importPlaylist(file: string): Promise<ImportResult> {

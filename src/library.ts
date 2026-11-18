@@ -1,8 +1,20 @@
-import type { Library, TagEdit, Track } from "../shared/types"
+import type { Library, Preferences, TagEdit, Track } from "../shared/types"
 
 export type { TrackTags, Track, TagEdit, Playlist, DiscoverProvider, DiscoverConnection, DiscoverSettings, Preferences, Library, ImportResult, DiscoverResult, TorrentFile, TorrentExpansion, PreparedTorrentTrack, SaveProgress, TorrentProgress, SaveStarted, TorrentSaved } from "../shared/types"
 export type Album = { key: string; title: string; artist: string; year?: number; cover?: string; trackIds: string[] }
-export const emptyLibrary: Library = { tracks: [], liked: [], recent: [], playlists: [], tagEdits: {}, volume: 0.7, viewMode: "list", discover: { provider: "torznab", url: "", apiKey: "", categories: "3000", profiles: {}, noticeAccepted: false }, saveFolder: "" }
+export const emptyLibrary: Library = { tracks: [], liked: [], recent: [], playlists: [], tagEdits: {}, volume: 0.7, viewMode: "list", discover: { provider: "torznab", url: "", apiKey: "", categories: "3000", profiles: {}, noticeAccepted: false }, saveFolder: "", watchedFolders: [] }
+// Points favorites, history, playlists, and tag edits at the new ids of
+// files that were renamed or moved inside a watched folder.
+export function remapTrackIds<T extends Pick<Preferences, "liked" | "recent" | "playlists" | "tagEdits">>(value: T, moved: Record<string, string>): T {
+  const swap = (ids: string[]) => [...new Set(ids.map((id) => Object.hasOwn(moved, id) ? moved[id] : id))]
+  return {
+    ...value,
+    liked: swap(value.liked),
+    recent: swap(value.recent),
+    playlists: value.playlists.map((playlist) => ({ ...playlist, trackIds: swap(playlist.trackIds) })),
+    tagEdits: Object.fromEntries(Object.entries(value.tagEdits).map(([id, edit]) => [Object.hasOwn(moved, id) ? moved[id] : id, edit])),
+  }
+}
 export const audioExtensions = /\.(mp3|wav|flac|ogg|opus|m4a|aac|webm)$/i
 export const folderName = (folder: string) => folder.split(/[\\/]/).filter(Boolean).pop() || "Arquivos avulsos"
 // ipcRenderer.invoke wraps main-process errors as
