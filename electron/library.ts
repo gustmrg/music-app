@@ -23,7 +23,11 @@ const isAudio = (file: string) => AUDIO_EXTENSIONS.includes(path.extname(file).s
 const isLocal = (file: unknown): file is string => typeof file === "string" && !/^[a-z][a-z\d+.-]*:/i.test(file.replace(/^[a-z]:[\\/]/i, "")) && !/^[\\/]{2}/.test(file)
 
 // Whether file is folder itself or inside it.
-export const isWithin = (folder: string, file: string) => file === folder || file.startsWith(folder.endsWith(path.sep) ? folder : folder + path.sep)
+export const isWithin = (folder: string, file: string, caseInsensitive = process.platform === "win32") => {
+  const parent = caseInsensitive ? folder.toLowerCase() : folder
+  const child = caseInsensitive ? file.toLowerCase() : file
+  return child === parent || child.startsWith(parent.endsWith(path.sep) ? parent : parent + path.sep)
+}
 
 // Audio files under a folder, without following directory symlinks. Folders
 // that cannot be read are reported, so their tracks are not taken as removed.

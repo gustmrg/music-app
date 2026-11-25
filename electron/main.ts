@@ -173,7 +173,9 @@ function resolveYouTube(id: string, fresh = false): Promise<YouTubeResolved> {
   return job
 }
 
-handle("youtube:add", async (_win, text, name) => {
+// Fetching YouTube metadata via yt-dlp can take up to two minutes; keep it
+// outside the library queue and serialize only the library mutation.
+handleConcurrent("youtube:add", async (_win, text, name) => {
   const { targets } = parseYouTubeLinks(text)
   if (!targets.length) throw new Error("Nenhum link do YouTube válido foi encontrado no texto enviado.")
   const videos: YouTubeVideo[] = []
@@ -185,7 +187,8 @@ handle("youtube:add", async (_win, text, name) => {
     if (targets.length === 1 && target.kind === "playlist") playlistTitle = result.playlistTitle
   }
   if (!videos.length) throw new Error("Os links enviados não contêm vídeos disponíveis.")
-  return library.addVideos(videos, playlistTitle || String(name ?? "").trim().slice(0, 120))
+  const finalName = playlistTitle || String(name ?? "").trim().slice(0, 120)
+  return enqueue(() => library.addVideos(videos, finalName))
 })
 
 handleConcurrent("youtube:resolve", async (_win, id, fresh) => {

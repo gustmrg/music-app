@@ -64,6 +64,7 @@ const isMissing = (error: unknown) => (error as NodeJS.ErrnoException | null)?.c
 class LiveSession {
   closed = false
   private child: ChildProcess | null = null
+  private cancelRetry: (() => void) | null = null
   private controller!: ReadableStreamDefaultController<Uint8Array>
   private failures = 0
   private delivered = false
@@ -130,7 +131,11 @@ class LiveSession {
     if (this.closed) return
     this.failures++
     if (this.failures > this.options.maxAttempts) return this.fail(error)
-    await new Promise((resolve) => setTimeout(resolve, this.options.retryDelayMs * this.failures))
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => { this.cancelRetry = null; resolve() }, this.options.retryDelayMs * this.failures)
+      this.cancelRetry = () => { clearTimeout(timer); this.cancelRetry = null; resolve() }
+    })
+    if (this.closed) return
     return this.run(true)
   }
 
@@ -160,6 +165,7 @@ class LiveSession {
   }
 
   private stop() {
+    this.cancelRetry?.()
     const child = this.child
     this.child = null
     if (!child || child.exitCode !== null || child.signalCode !== null) return
@@ -190,6 +196,7 @@ export class LiveStreams {
   get active(): boolean { return this.current !== null && !this.current.closed }
 
   async open(source: LiveSource, signal?: AbortSignal): Promise<Response> {
+    if (signal?.aborted) return new Response("A transmissão foi encerrada.", { status: 499, headers: { "Content-Type": "text/plain; charset=utf-8" } })
     this.current?.close()
     const session = new LiveSession(source, this.options)
     this.current = session
