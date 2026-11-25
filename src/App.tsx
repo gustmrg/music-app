@@ -10,7 +10,7 @@ import { TrackTable } from "@/components/TrackTable"
 import { LibraryFilters, applyFilters, emptyFilters, type Filters } from "@/components/LibraryFilters"
 import { SettingsDialog, type SettingsSection } from "@/components/SettingsDialog"
 import { TagEditor } from "@/components/TagEditor"
-import { albumKey, applyTagEdit, audioExtensions, buildAlbums, emptyLibrary, errorMessage, filterTracks, folderName, normalize, remapTrackIds, type ImportResult, type Library, type Playlist, type TagEdit, type TorrentProgress, type TorrentSaved, type Track } from "@/library"
+import { albumKey, applyTagEdit, audioExtensions, buildAlbums, emptyLibrary, errorMessage, filterTracks, folderName, normalize, remapTrackIds, type ImportResult, type Library, type Playlist, type Preferences, type TagEdit, type TorrentProgress, type TorrentSaved, type Track } from "@/library"
 
 type View = "library" | "albums" | "folders" | "playlists" | "liked" | "recent" | "discover"
 const navigationGroups = [
@@ -68,9 +68,32 @@ export default function App() {
   }, [notify])
 
   const { liked, recent, playlists, volume, discover, tagEdits, viewMode } = library
+  // Debounce preference writes (e.g. dragging the volume slider) and flush on
+  // unload so rapid edits do not rewrite the library JSON on every frame.
+  const pendingPreferences = useRef<Preferences | null>(null)
+  const savePreferencesTimer = useRef<number | undefined>(undefined)
+  const skipInitialPreferencesSave = useRef(true)
+  const flushPreferences = useCallback(() => {
+    window.clearTimeout(savePreferencesTimer.current)
+    savePreferencesTimer.current = undefined
+    const next = pendingPreferences.current
+    if (!next || !window.desktop) return
+    pendingPreferences.current = null
+    void window.desktop.savePreferences(next).catch(() => notify("Não foi possível salvar as alterações da biblioteca neste computador."))
+  }, [notify])
+
   useEffect(() => {
-    if (loaded && window.desktop) void window.desktop.savePreferences({ liked, recent, playlists, volume, discover, tagEdits, viewMode }).catch(() => notify("Não foi possível salvar as alterações da biblioteca neste computador."))
-  }, [loaded, liked, recent, playlists, volume, discover, tagEdits, viewMode, notify])
+    if (!loaded || !window.desktop) return
+    if (skipInitialPreferencesSave.current) { skipInitialPreferencesSave.current = false; return }
+    pendingPreferences.current = { liked, recent, playlists, volume, discover, tagEdits, viewMode }
+    window.clearTimeout(savePreferencesTimer.current)
+    savePreferencesTimer.current = window.setTimeout(flushPreferences, 300)
+  }, [loaded, liked, recent, playlists, volume, discover, tagEdits, viewMode, flushPreferences])
+
+  useEffect(() => {
+    window.addEventListener("beforeunload", flushPreferences)
+    return () => { window.removeEventListener("beforeunload", flushPreferences); flushPreferences() }
+  }, [flushPreferences])
 
   // Tags of older libraries are read in the background after loading.
   useEffect(() => {

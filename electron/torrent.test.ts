@@ -314,3 +314,48 @@ test("stopping one album cancels its save while another album keeps downloading"
   assert.equal(second.destroyed, true)
   assert.equal(outcomes.length, 2)
 })
+
+test("destroyTorrent only removes cache directories strictly inside cachePath", async (t) => {
+  const { root, engine, add } = await engineFixture(t)
+  const victim = path.join(root, "victim.txt")
+  const sibling = path.join(engine.cachePath, "Other", "keep.mp3")
+  const normal = path.join(engine.cachePath, "Album", "01.mp3")
+  await fs.writeFile(victim, "keep")
+  await fs.mkdir(path.dirname(sibling), { recursive: true })
+  await fs.writeFile(sibling, "keep")
+  await fs.mkdir(path.dirname(normal), { recursive: true })
+  await fs.writeFile(normal, "temp")
+
+  const emptyName = add(fakeTorrent("3".repeat(40), "", []))
+  const traversal = add(fakeTorrent("4".repeat(40), "../victim.txt", []))
+  const valid = add(fakeTorrent("5".repeat(40), "Album", []))
+
+  engine.destroyTorrent(emptyName.infoHash, emptyName)
+  engine.destroyTorrent(traversal.infoHash, traversal)
+  engine.destroyTorrent(valid.infoHash, valid)
+  // Wait a tick for the fire-and-forget fs.rm calls to settle.
+  await new Promise((resolve) => setTimeout(resolve, 50))
+
+  assert.equal(await fs.readFile(victim, "utf8"), "keep")
+  assert.equal(await fs.readFile(sibling, "utf8"), "keep")
+  await assert.rejects(fs.stat(path.join(engine.cachePath, "Album")), { code: "ENOENT" })
+})
+
+test("ensureClient initializes webtorrent only once across concurrent calls", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "local-music-client-"))
+  t.after(() => fs.rm(root, { recursive: true, force: true }))
+  let created = 0
+  const fakeClient = { on() {}, destroy(cb?: () => void) { cb?.() } } as unknown as NonNullable<TorrentEngine["client"]>
+  const engine = new TorrentEngine({
+    cachePath: path.join(root, "cache"),
+    createClient: async () => {
+      created++
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      return fakeClient
+    },
+  })
+  const [first, second] = await Promise.all([engine.ensureClient(), engine.ensureClient()])
+  assert.equal(created, 1)
+  assert.equal(first, fakeClient)
+  assert.equal(second, fakeClient)
+})
