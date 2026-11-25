@@ -346,3 +346,47 @@ test("isWithin matches case-insensitively when configured (Windows paths)", () =
   assert.equal(isWithin(folder, sibling, true), false)
   assert.equal(isWithin(folder, child, false), false)
 })
+
+test("encrypts indexer API keys on disk, migrates legacy plaintext keys, and handles long ciphertexts", async (t) => {
+  const { root } = await fixture(t)
+  const storeFile = path.join(root, "data", "secrets.json")
+  const prefix = `enc:v1:${"p".repeat(220)}:` // > 200 chars to verify decrypt runs before cleanDiscoverSettings
+  const codec = {
+    encrypt: (plain: string) => `${prefix}${Buffer.from(plain, "utf8").toString("base64")}`,
+    decrypt: (value: string) => value.startsWith(prefix) ? Buffer.from(value.slice(prefix.length), "base64").toString("utf8") : value,
+  }
+  const library = new LocalLibrary(storeFile, { secretCodec: codec })
+  await library.load()
+  await library.savePreferences({
+    ...library.preferences,
+    discover: {
+      provider: "prowlarr",
+      url: "http://localhost:9696",
+      apiKey: "prowlarr-secret",
+      categories: "3000",
+      profiles: {
+        prowlarr: { url: "http://localhost:9696", apiKey: "prowlarr-secret", categories: "3000" },
+        torznab: { url: "http://localhost:9117/api", apiKey: "jackett-secret", categories: "3000" },
+      },
+      noticeAccepted: true,
+    },
+  })
+
+  const raw = await fs.readFile(storeFile, "utf8")
+  assert.ok(!raw.includes("prowlarr-secret"), "active API key must not be stored in plaintext")
+  assert.ok(!raw.includes("jackett-secret"), "inactive profile API key must not be stored in plaintext")
+
+  const reloaded = new LocalLibrary(storeFile, { secretCodec: codec })
+  const saved = await reloaded.load()
+  assert.equal(saved.discover.apiKey, "prowlarr-secret")
+  assert.equal(saved.discover.profiles.torznab?.apiKey, "jackett-secret")
+
+  // Legacy plaintext store migrates cleanly on load.
+  await fs.writeFile(storeFile, JSON.stringify({
+    version: 1,
+    tracks: [],
+    discover: { provider: "torznab", url: "http://localhost:9117/api", apiKey: "legacy-plain-key", categories: "3000", profiles: {}, noticeAccepted: false },
+  }))
+  const migrated = new LocalLibrary(storeFile, { secretCodec: codec })
+  assert.equal((await migrated.load()).discover.apiKey, "legacy-plain-key")
+})
