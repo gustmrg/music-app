@@ -6,7 +6,7 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import os from "node:os"
 import { LocalLibrary } from "./library.ts"
-import { readTags, cleanTags, cleanTagEdit, coverResponse } from "./metadata.ts"
+import { readTags, cleanTags, cleanTagEdit, coverResponse, pruneUnusedCovers } from "./metadata.ts"
 
 const fixtures = path.join(import.meta.dirname, "fixtures")
 
@@ -102,4 +102,27 @@ test("coverResponse serves stored covers and rejects other names", async (t) => 
   assert.equal(ok.headers.get("content-type"), "image/png")
   assert.equal((await coverResponse(new URL("local-music://cover/..%2Flibrary.json"), covers)).status, 404)
   assert.equal((await coverResponse(new URL(`local-music://cover/${"0".repeat(64)}.png`), covers)).status, 404)
+})
+
+test("pruneUnusedCovers deletes only unreferenced cached covers and removeMissing prunes them", async (t) => {
+  const { root, music, covers } = await workspace(t)
+  const store = path.join(root, "library.json")
+  const library = new LocalLibrary(store, { coversDir: covers })
+  await library.load()
+  const { tracks } = await library.addFolder(music)
+  const mp3 = present(tracks.find((track) => track.format === "MP3"))
+  const usedCover = present(mp3.cover)
+  const orphanCover = `${"a".repeat(64)}.jpg`
+  const unrelated = "notes.txt"
+  await fs.writeFile(path.join(covers, orphanCover), "orphan")
+  await fs.writeFile(path.join(covers, unrelated), "keep")
+
+  assert.equal(await pruneUnusedCovers(covers, new Set([usedCover])), 1)
+  assert.deepEqual((await fs.readdir(covers)).sort(), [unrelated, usedCover].sort())
+
+  // Removing the only track that referenced usedCover prunes its cover file too.
+  await fs.rm(mp3.path)
+  await library.reconcile(library.watchedFolders)
+  await library.removeMissing()
+  assert.deepEqual(await fs.readdir(covers), [unrelated])
 })

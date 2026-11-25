@@ -2,17 +2,18 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { createHash, randomUUID } from "node:crypto"
 import { fileURLToPath } from "node:url"
-import type { ImportResult, Library, MissingRemoved, Preferences, TagEdit, Track } from "../shared/types.ts"
+import type { DiscoverConnection, DiscoverSettings, ImportResult, Library, MissingRemoved, Preferences, TagEdit, Track } from "../shared/types.ts"
 import type { TrackFiles } from "./audio.ts"
 import { describeYouTube, isYouTubeTrackPath } from "./youtube.ts"
 import type { YouTubeVideoInput } from "./youtube.ts"
 import { cleanDiscoverSettings } from "./discover.ts"
-import { readTags, cleanTags, cleanTagEdit, mapLimit } from "./metadata.ts"
+import { readTags, cleanTags, cleanTagEdit, mapLimit, pruneUnusedCovers } from "./metadata.ts"
 
 // The saved library file is user data from an older or newer version, so
 // its fields are checked before use.
 type Loose = Record<string, any>
-type LibraryOptions = { defaultSaveFolder?: string; coversDir?: string }
+export type SecretCodec = { encrypt(value: string): string; decrypt(value: string): string }
+type LibraryOptions = { defaultSaveFolder?: string; coversDir?: string; secretCodec?: SecretCodec }
 
 const TAG_READ_CONCURRENCY = 8
 const STAT_CONCURRENCY = 32
@@ -95,20 +96,48 @@ export function cleanPreferences(input: unknown, tracks: Track[]): Preferences {
 // outside the preferences the renderer can overwrite.
 const cleanSaveFolder = (value: unknown): string => typeof value === "string" && path.isAbsolute(value) && isLocal(value) ? value : ""
 
+// Transforms indexer API keys before writing to or after reading from disk.
+// Decrypting happens before cleanDiscoverSettings so encrypted payloads are
+// not truncated by the 200-char plaintext key limit.
+function decodeStoredDiscover(raw: unknown, decrypt: (value: string) => string): unknown {
+  if (!raw || typeof raw !== "object") return raw
+  const value = raw as Loose
+  const profiles = value.profiles && typeof value.profiles === "object"
+    ? Object.fromEntries(Object.entries(value.profiles as Loose).map(([name, profile]) => [
+      name,
+      profile && typeof profile === "object" && typeof (profile as Loose).apiKey === "string"
+        ? { ...(profile as Loose), apiKey: decrypt((profile as Loose).apiKey) }
+        : profile,
+    ]))
+    : value.profiles
+  return { ...value, ...(typeof value.apiKey === "string" ? { apiKey: decrypt(value.apiKey) } : {}), profiles }
+}
+
+function encodeStoredDiscover(discover: DiscoverSettings, encrypt: (value: string) => string): DiscoverSettings {
+  const encodeConn = (conn: DiscoverConnection): DiscoverConnection => ({ ...conn, apiKey: conn.apiKey ? encrypt(conn.apiKey) : "" })
+  const profiles: DiscoverSettings["profiles"] = {}
+  for (const [name, conn] of Object.entries(discover.profiles)) {
+    if (conn) profiles[name as keyof DiscoverSettings["profiles"]] = encodeConn(conn)
+  }
+  return { ...discover, apiKey: discover.apiKey ? encrypt(discover.apiKey) : "", profiles }
+}
+
 export class LocalLibrary implements TrackFiles {
   storeFile: string
   defaultSaveFolder: string
   coversDir: string
+  secretCodec?: SecretCodec
   saveFolder = ""
   watchedFolders: string[] = []
   tracks = new Map<string, Track>()
   preferences = cleanPreferences({}, [])
   writes: Promise<void> = Promise.resolve()
 
-  constructor(storeFile: string, { defaultSaveFolder = "", coversDir = "" }: LibraryOptions = {}) {
+  constructor(storeFile: string, { defaultSaveFolder = "", coversDir = "", secretCodec }: LibraryOptions = {}) {
     this.storeFile = storeFile
     this.defaultSaveFolder = defaultSaveFolder
     this.coversDir = coversDir
+    this.secretCodec = secretCodec
   }
 
   async load(): Promise<Library> {
@@ -130,7 +159,8 @@ export class LocalLibrary implements TrackFiles {
         this.tracks.set(item.id, item)
       }
     }
-    this.preferences = cleanPreferences(saved, [...this.tracks.values()])
+    const decoded = this.secretCodec ? { ...saved, discover: decodeStoredDiscover(saved.discover, this.secretCodec.decrypt) } : saved
+    this.preferences = cleanPreferences(decoded, [...this.tracks.values()])
     this.saveFolder = cleanSaveFolder(saved.saveFolder)
     this.watchedFolders = cleanWatchedFolders(saved.watchedFolders)
     return this.snapshot()
@@ -160,7 +190,9 @@ export class LocalLibrary implements TrackFiles {
 
   async persist(): Promise<void> {
     // Persist only an explicit choice so the default follows the OS music folder.
-    const text = JSON.stringify({ version: 1, ...this.snapshot(), saveFolder: this.saveFolder })
+    const snapshot = this.snapshot()
+    const discover = this.secretCodec ? encodeStoredDiscover(snapshot.discover, this.secretCodec.encrypt) : snapshot.discover
+    const text = JSON.stringify({ version: 1, ...snapshot, discover, saveFolder: this.saveFolder })
     const write = async () => {
       await fs.mkdir(path.dirname(this.storeFile), { recursive: true })
       const temporary = `${this.storeFile}.tmp`
@@ -313,8 +345,15 @@ export class LocalLibrary implements TrackFiles {
       for (const id of removed) this.tracks.delete(id)
       this.preferences = cleanPreferences(this.preferences, [...this.tracks.values()])
       await this.persist()
+      await this.pruneCovers()
     }
     return { tracks: [...this.tracks.values()], removed }
+  }
+
+  async pruneCovers(): Promise<number> {
+    const used = new Set<string>()
+    for (const track of this.tracks.values()) if (track.cover) used.add(track.cover)
+    return pruneUnusedCovers(this.coversDir, used)
   }
 
   async importPlaylist(file: string): Promise<ImportResult> {
