@@ -3,6 +3,7 @@ import path from "node:path"
 import { createHash, randomUUID } from "node:crypto"
 import { fileURLToPath } from "node:url"
 import type { DiscoverConnection, DiscoverSettings, ImportResult, Library, MissingRemoved, Preferences, TagEdit, Track } from "../shared/types.ts"
+import { AUDIO_EXTENSIONS as SHARED_AUDIO_EXTENSIONS } from "../shared/audio.ts"
 import type { TrackFiles } from "./audio.ts"
 import { describeYouTube, isYouTubeTrackPath } from "./youtube.ts"
 import type { YouTubeVideoInput } from "./youtube.ts"
@@ -18,7 +19,7 @@ type LibraryOptions = { defaultSaveFolder?: string; coversDir?: string; secretCo
 const TAG_READ_CONCURRENCY = 8
 const STAT_CONCURRENCY = 32
 
-export const AUDIO_EXTENSIONS = ["mp3", "wav", "flac", "ogg", "opus", "m4a", "aac", "webm"]
+export const AUDIO_EXTENSIONS: string[] = [...SHARED_AUDIO_EXTENSIONS]
 const isAudio = (file: string) => AUDIO_EXTENSIONS.includes(path.extname(file).slice(1).toLowerCase())
 const isLocal = (file: unknown): file is string => typeof file === "string" && !/^[a-z][a-z\d+.-]*:/i.test(file.replace(/^[a-z]:[\\/]/i, "")) && !/^[\\/]{2}/.test(file)
 

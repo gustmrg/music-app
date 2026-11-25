@@ -2,7 +2,6 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } f
 import { ArrowDown, ArrowUp, Clock3, Compass, Disc3, EyeOff, FileAudio, Folder, FolderPlus, FolderSync, Heart, Library as LibraryIcon, LayoutGrid, List, Settings2, ListMusic, ListPlus, Maximize2, Minus, Music2, Pencil, Play, Plus, Search, Tags, Trash2, Upload, X, Youtube } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Player, type PlayMode, type PlayerControls } from "@/components/Player"
 import { Discover } from "@/components/Discover"
 import { Cover } from "@/components/Cover"
@@ -10,7 +9,10 @@ import { TrackTable } from "@/components/TrackTable"
 import { LibraryFilters, applyFilters, emptyFilters, type Filters } from "@/components/LibraryFilters"
 import { SettingsDialog, type SettingsSection } from "@/components/SettingsDialog"
 import { TagEditor } from "@/components/TagEditor"
-import { albumKey, applyTagEdit, audioExtensions, buildAlbums, emptyLibrary, errorMessage, filterTracks, folderName, normalize, remapTrackIds, type ImportResult, type Library, type Playlist, type Preferences, type TagEdit, type TorrentProgress, type TorrentSaved, type Track } from "@/library"
+import { QueueSheet } from "@/components/QueueSheet"
+import { YoutubeImportSheet } from "@/components/YoutubeImportSheet"
+import { PlaylistEditorSheet } from "@/components/PlaylistEditorSheet"
+import { albumKey, applyTagEdit, audioAccept, audioExtensions, buildAlbums, emptyLibrary, errorMessage, filterTracks, folderName, normalize, remapTrackIds, type ImportResult, type Library, type Playlist, type Preferences, type TagEdit, type TorrentProgress, type TorrentSaved, type Track } from "@/library"
 
 type View = "library" | "albums" | "folders" | "playlists" | "liked" | "recent" | "discover"
 const navigationGroups = [
@@ -50,12 +52,9 @@ export default function App() {
   const openSettings = (section: SettingsSection) => { setSettingsSection(section); setSettingsOpen(true) }
   const [queueOpen, setQueueOpen] = useState(false)
   const [editor, setEditor] = useState<Playlist | null>(null)
-  const [editorSearch, setEditorSearch] = useState("")
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState("")
   const [youtubeOpen, setYoutubeOpen] = useState(false)
-  const [youtubeText, setYoutubeText] = useState("")
-  const [youtubeName, setYoutubeName] = useState("")
   const filesInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
   const browserTracks = useRef(new Map<string, Track>())
@@ -264,15 +263,16 @@ export default function App() {
       notify(`${removed.length} música(s) indisponível(is) removida(s) da biblioteca. Nenhum arquivo foi apagado.`)
     } catch { notify("Não foi possível remover as músicas indisponíveis.") }
   }
-  const addYoutube = async () => {
-    if (!window.desktop || !youtubeText.trim()) return
+  const addYoutube = async (text: string, name: string) => {
+    if (!window.desktop || !text.trim()) return false
     setBusy(true)
     try {
-      const result = await window.desktop.addYoutube(youtubeText, youtubeName)
+      const result = await window.desktop.addYoutube(text, name)
       acceptImport(result)
-      setYoutubeOpen(false); setYoutubeText(""); setYoutubeName("")
+      return true
     } catch (error) {
       notify(errorMessage(error, "Não foi possível ler os links do YouTube."))
+      return false
     } finally { setBusy(false) }
   }
   const importBrowserFiles = (files: FileList | null) => {
@@ -289,7 +289,6 @@ export default function App() {
     notify(`${count} música(s) disponível(is) nesta sessão. Use o aplicativo desktop para manter a biblioteca salva.`)
   }
   const openEditor = (playlist?: Playlist, ids: string[] = []) => {
-    setEditorSearch("")
     setEditor(playlist ? { ...playlist, trackIds: [...playlist.trackIds] } : { id: crypto.randomUUID(), name: "", trackIds: [...ids] })
   }
   const savePlaylist = () => {
@@ -367,7 +366,7 @@ export default function App() {
   const albumDuration = selectedAlbum ? Math.round(visibleTracks.reduce((total, track) => total + (track.duration ?? 0), 0) / 60) : 0
 
   return <div className="app-shell">
-    <input ref={filesInput} type="file" accept=".mp3,.wav,.flac,.ogg,.opus,.m4a,.aac,.webm" multiple hidden onChange={(event) => { importBrowserFiles(event.target.files); event.target.value = "" }} />
+    <input ref={filesInput} type="file" accept={audioAccept} multiple hidden onChange={(event) => { importBrowserFiles(event.target.files); event.target.value = "" }} />
     <input ref={folderInput} type="file" multiple hidden {...{ webkitdirectory: "" }} onChange={(event) => { importBrowserFiles(event.target.files); event.target.value = "" }} />
     <aside className="sidebar">
       <div className="brand window-drag"><span className="brand-icon"><Music2 size={20} /></span>Local Music</div>
@@ -419,9 +418,34 @@ export default function App() {
     </main>
     {settingsOpen ? <SettingsDialog section={settingsSection} onSectionChange={setSettingsSection} discover={discover} onSaveDiscover={(discover) => setLibrary((value) => ({ ...value, discover }))} open={settingsOpen} onOpenChange={setSettingsOpen} saveFolder={library.saveFolder} loaded={loaded} onChooseSaveFolder={chooseSaveFolder} /> : null}
     <Player ref={playerControls} onPlayingChange={setPlaying} track={trackMap.get(selection.id)} request={selection.request} liked={likedIds.has(selection.id)} volume={volume} mode={mode} torrentStatus={(() => { const track = trackMap.get(selection.id); return track?.source === "torrent" && track.infoHash ? torrentProgress.get(track.infoHash) : undefined })()} onVolume={(value) => setLibrary((previous) => ({ ...previous, volume: value }))} onMode={setMode} onLike={() => toggleLike(selection.id)} onNext={next} onPrevious={() => { if (queue.length) play(queue[(queue.indexOf(selection.id) - 1 + queue.length) % queue.length]) }} onQueue={() => setQueueOpen(true)} onStarted={started} onError={notify} onSave={() => void saveCurrentTorrentTrack()} />
-    <Sheet open={queueOpen} onOpenChange={setQueueOpen}><SheetContent className="local-sheet"><SheetHeader><SheetTitle>Fila de reprodução</SheetTitle><SheetDescription>{queue.length} música(s) · independente das playlists salvas</SheetDescription></SheetHeader><div className="sheet-actions"><Button variant="outline" disabled={!queue.length} onClick={() => { setQueueOpen(false); openEditor(undefined, queue) }}><Plus />Salvar playlist</Button><Button variant="ghost" disabled={!queue.length} onClick={() => { setQueue([]); setSelection((value) => ({ id: "", request: value.request + 1 })) }}><Trash2 />Limpar fila</Button></div><div className="sheet-list">{fromIds(queue).map((track) => <div key={track.id} className="queue-row"><button className={selection.id === track.id ? "accent" : ""} onClick={() => play(track.id)}><Music2 size={16} /><span>{track.title}</span></button><Button variant="ghost" size="icon-xs" aria-label={`Remover ${track.title} da fila`} onClick={() => { setQueue((ids) => ids.filter((id) => id !== track.id)); if (selection.id === track.id) setSelection((value) => ({ id: "", request: value.request + 1 })) }}><X /></Button></div>)}{!queue.length ? <p className="muted">Reproduza uma música para começar uma fila.</p> : null}</div></SheetContent></Sheet>
-    <Sheet open={youtubeOpen} onOpenChange={setYoutubeOpen}><SheetContent className="local-sheet"><SheetHeader><SheetTitle>Adicionar do YouTube</SheetTitle><SheetDescription>Cole links de vídeos, playlists ou transmissões ao vivo do YouTube, um por linha. O yt-dlp lê os metadados; nenhum vídeo é baixado e o áudio é transmitido na hora da reprodução.</SheetDescription></SheetHeader>{youtubeOpen ? <form className="playlist-form" onSubmit={(event) => { event.preventDefault(); void addYoutube() }}><label>Nome da playlist (opcional)<Input maxLength={120} value={youtubeName} onChange={(event) => setYoutubeName(event.target.value)} placeholder="Usado quando o envio tem vários vídeos" /></label><label>Links<textarea required rows={8} className="youtube-links" aria-label="Links do YouTube" value={youtubeText} onChange={(event) => setYoutubeText(event.target.value)} placeholder={"https://www.youtube.com/watch?v=…\nhttps://youtu.be/…\nhttps://www.youtube.com/playlist?list=…\nhttps://www.youtube.com/@canal/live"} /></label><p className="muted">Requer o yt-dlp instalado no sistema. Transmissões ao vivo também precisam do ffmpeg.</p><div className="sheet-actions"><Button type="submit" disabled={busy || !youtubeText.trim()}>Adicionar</Button><Button type="button" variant="ghost" onClick={() => setYoutubeOpen(false)}>Cancelar</Button></div></form> : null}</SheetContent></Sheet>
-    <Sheet open={!!editor} onOpenChange={(open) => { if (!open) setEditor(null) }}><SheetContent className="local-sheet"><SheetHeader><SheetTitle>{playlists.some((item) => item.id === editor?.id) ? "Editar playlist" : "Nova playlist"}</SheetTitle><SheetDescription>Escolha músicas da sua biblioteca. Nenhum arquivo será copiado.</SheetDescription></SheetHeader>{editor ? <form className="playlist-form" onSubmit={(event) => { event.preventDefault(); savePlaylist() }}><label>Nome<Input autoFocus required maxLength={120} value={editor.name} onChange={(event) => setEditor({ ...editor, name: event.target.value })} placeholder="Minha playlist" /></label><Input aria-label="Filtrar músicas da playlist" placeholder="Filtrar músicas…" value={editorSearch} onChange={(event) => setEditorSearch(event.target.value)} /><span className="muted">{editor.trackIds.length} selecionada(s)</span><div className="playlist-choices">{filterTracks(tracks, editorSearch).map((track) => <label key={track.id}><input type="checkbox" checked={editor.trackIds.includes(track.id)} onChange={(event) => setEditor({ ...editor, trackIds: event.target.checked ? [...editor.trackIds, track.id] : editor.trackIds.filter((id) => id !== track.id) })} /><span>{track.title}</span></label>)}{!library.tracks.length ? <p className="muted">Adicione músicas à biblioteca para preencher sua playlist.</p> : null}</div><div className="sheet-actions"><Button type="submit" disabled={!editor.name.trim()}>Salvar playlist</Button><Button type="button" variant="ghost" onClick={() => setEditor(null)}>Cancelar</Button></div>{playlists.some((item) => item.id === editor.id) ? <Button type="button" variant="destructive" onClick={() => { setLibrary((value) => ({ ...value, playlists: value.playlists.filter((item) => item.id !== editor.id) })); setEditor(null); setPlaylistId(""); notify("Playlist removida. Os arquivos de música foram mantidos.") }}><Trash2 />Excluir playlist</Button> : null}</form> : null}</SheetContent></Sheet>
+    <QueueSheet
+      open={queueOpen}
+      onOpenChange={setQueueOpen}
+      tracks={fromIds(queue)}
+      currentId={selection.id}
+      onPlay={(id) => play(id)}
+      onRemove={(id) => {
+        setQueue((ids) => ids.filter((item) => item !== id))
+        if (selection.id === id) setSelection((value) => ({ id: "", request: value.request + 1 }))
+      }}
+      onClear={() => { setQueue([]); setSelection((value) => ({ id: "", request: value.request + 1 })) }}
+      onSaveAsPlaylist={() => { setQueueOpen(false); openEditor(undefined, queue) }}
+    />
+    <YoutubeImportSheet open={youtubeOpen} onOpenChange={setYoutubeOpen} busy={busy} onSubmit={addYoutube} />
+    <PlaylistEditorSheet
+      playlist={editor}
+      isExisting={playlists.some((item) => item.id === editor?.id)}
+      tracks={tracks}
+      onChange={setEditor}
+      onSave={savePlaylist}
+      onDelete={(id) => {
+        setLibrary((value) => ({ ...value, playlists: value.playlists.filter((item) => item.id !== id) }))
+        setEditor(null)
+        setPlaylistId("")
+        notify("Playlist removida. Os arquivos de música foram mantidos.")
+      }}
+      onClose={() => setEditor(null)}
+    />
     {tagEditorOpen && selectedTracks.length ? <TagEditor tracks={selectedTracks} hasEdits={selectedIds.some((id) => tagEdits[id])} onSave={saveTagEdit} onRestore={restoreTags} onClose={() => setTagEditorOpen(false)} /> : null}
   </div>
 }

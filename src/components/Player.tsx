@@ -1,6 +1,6 @@
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react"
 import { Download, Heart, ListMusic, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, Volume2, VolumeX } from "lucide-react"
-import { errorMessage, formatTime, trackArtist, type Track } from "@/library"
+import { coverUrl, errorMessage, formatTime, trackArtist, type Track } from "@/library"
 import { Button } from "@/components/ui/button"
 import { Cover } from "@/components/Cover"
 import { YT_DLP_UPDATE_HINT } from "../../shared/messages"
@@ -35,6 +35,10 @@ export function Player({ ref, onPlayingChange, track, request, liked, volume, mo
   const [connecting, setConnecting] = useState(false)
   const retries = useRef(0)
   const retryTimer = useRef<number | undefined>(undefined)
+  // Remember the last non-zero volume so unmuting restores it.
+  const lastVolume = useRef(volume > 0 ? volume : 0.7)
+  if (volume > 0) lastVolume.current = volume
+  const toggleMute = () => onVolume(volume === 0 ? lastVolume.current : 0)
   // A YouTube track whose stream failed; its next play asks yt-dlp for a new
   // URL instead of the cached one.
   const failedStream = useRef<string | undefined>(undefined)
@@ -155,6 +159,81 @@ export function Player({ ref, onPlayingChange, track, request, liked, volume, mo
 
   useEffect(() => { if (audio.current) audio.current.volume = volume }, [volume])
 
+  // Keep latest callbacks accessible to MediaSession and keyboard listeners
+  // without re-registering them on every render.
+  const actionsRef = useRef({ play, pause, toggleMute, onNext, onPrevious, track, playing, connecting, resolving, live, duration })
+  actionsRef.current = { play, pause, toggleMute, onNext, onPrevious, track, playing, connecting, resolving, live, duration }
+
+  // OS media keys and now-playing overlay (Windows SMTC, macOS Now Playing, MPRIS).
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return
+    const session = navigator.mediaSession
+    if (!track) {
+      session.metadata = null
+      session.playbackState = "none"
+      return
+    }
+    const artwork = coverUrl(track)
+    session.metadata = new MediaMetadata({
+      title: track.title,
+      artist: trackArtist(track),
+      album: track.album ?? "",
+      artwork: artwork ? [{ src: artwork }] : [],
+    })
+    session.playbackState = playing || connecting ? "playing" : "paused"
+  }, [track, playing, connecting])
+
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return
+    const session = navigator.mediaSession
+    const safeSet = (action: MediaSessionAction, handler: MediaSessionActionHandler | null) => {
+      try { session.setActionHandler(action, handler) } catch { /* unsupported action */ }
+    }
+    safeSet("play", () => { if (!actionsRef.current.resolving) actionsRef.current.play() })
+    safeSet("pause", () => actionsRef.current.pause())
+    safeSet("previoustrack", () => { if (actionsRef.current.track) actionsRef.current.onPrevious() })
+    safeSet("nexttrack", () => { if (actionsRef.current.track) actionsRef.current.onNext() })
+    safeSet("seekto", (details) => {
+      const element = audio.current
+      if (!element || actionsRef.current.live || details.seekTime == null || !actionsRef.current.duration) return
+      const target = Math.max(0, Math.min(actionsRef.current.duration, details.seekTime))
+      element.currentTime = target
+      setProgress(target)
+    })
+    return () => {
+      for (const action of ["play", "pause", "previoustrack", "nexttrack", "seekto"] as const) safeSet(action, null)
+    }
+  }, [])
+
+  // In-app playback shortcuts: Space (play/pause), Left/Right (±5s), M (mute).
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return
+      const target = event.target as HTMLElement | null
+      if (target && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) return
+      const current = actionsRef.current
+      if (event.key === " " && !target?.closest("button, a, [role='button']")) {
+        if (!current.track || current.resolving) return
+        event.preventDefault()
+        if (current.playing || current.connecting) current.pause()
+        else current.play()
+      } else if ((event.key === "m" || event.key === "M") && !event.repeat) {
+        event.preventDefault()
+        current.toggleMute()
+      } else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && !target?.closest("button, a, [role='button']")) {
+        const element = audio.current
+        if (!element || !current.track || current.live || !current.duration || current.resolving) return
+        event.preventDefault()
+        const delta = event.key === "ArrowRight" ? 5 : -5
+        const nextTime = Math.max(0, Math.min(current.duration, element.currentTime + delta))
+        element.currentTime = nextTime
+        setProgress(nextTime)
+      }
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [])
+
   // Torrent streams stall while missing pieces download; waiting/playing
   // bracket those gaps so the UI can say what is happening.
   useEffect(() => { if (!isTorrent) setBuffering(false) }, [isTorrent, trackId])
@@ -220,6 +299,6 @@ export function Player({ ref, onPlayingChange, track, request, liked, volume, mo
         </div>
         : <div className="seek"><span>{formatTime(progress)}</span><input type="range" min={0} max={duration || 1} step={0.1} value={Math.min(progress, duration || 1)} disabled={!track || !duration || resolving} aria-label="Posição da música" onChange={(event) => { const time = Number(event.target.value); if (audio.current) audio.current.currentTime = time; setProgress(time) }} /><span>{formatTime(duration)}</span></div>}
     </div>
-    <div className="player-right">{volume === 0 ? <VolumeX size={18} aria-label="Sem som" /> : <Volume2 size={18} aria-label="Com som" />}<input type="range" min={0} max={1} step={0.01} value={volume} aria-label="Volume" onChange={(event) => onVolume(Number(event.target.value))} /><Button variant="ghost" size="icon" aria-label="Abrir fila de reprodução" onClick={onQueue}><ListMusic /></Button></div>
+    <div className="player-right"><Button variant="ghost" size="icon-xs" aria-label={volume === 0 ? "Ativar som" : "Silenciar"} aria-pressed={volume === 0} title={volume === 0 ? "Ativar som (M)" : "Silenciar (M)"} onClick={toggleMute}>{volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}</Button><input type="range" min={0} max={1} step={0.01} value={volume} aria-label="Volume" onChange={(event) => onVolume(Number(event.target.value))} /><Button variant="ghost" size="icon" aria-label="Abrir fila de reprodução" onClick={onQueue}><ListMusic /></Button></div>
   </footer>
 }
