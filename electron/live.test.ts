@@ -193,3 +193,34 @@ test("an aborted request stops its ffmpeg", async () => {
 test("ffmpegAvailable answers for the real binary whether or not it is installed", async () => {
   assert.equal(typeof await ffmpegAvailable(), "boolean")
 })
+
+test("a pre-aborted signal returns 499 without resolving or spawning ffmpeg", async () => {
+  const { spawn, processes } = fakeSpawn()
+  const lives = new LiveStreams({ spawn, ...options })
+  const { source, calls } = sourceOf({ url: "https://m/1.m3u8", isLive: true })
+  const controller = new AbortController()
+  controller.abort()
+  const response = await lives.open(source, controller.signal)
+  assert.equal(response.status, 499)
+  assert.equal(calls.length, 0)
+  assert.equal(processes.length, 0)
+})
+
+test("closing during a retry backoff cancels the pending retry timer", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] })
+  const { spawn, next, processes } = fakeSpawn()
+  const lives = new LiveStreams({ spawn, retryDelayMs: 5_000, maxAttempts: 2, firstByteTimeoutMs: 60_000 })
+  const { source, calls } = sourceOf({ url: "https://m/1.m3u8", isLive: true })
+  const opened = lives.open(source)
+  const first = await next()
+  first.exit(1)
+  // Let the close handler enter retry() and schedule the backoff timer.
+  await new Promise((resolve) => setImmediate(resolve))
+  lives.stopAll()
+  const response = await opened
+  assert.equal(response.status, 504)
+  t.mock.timers.tick(20_000)
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(calls.length, 1)
+  assert.equal(processes.length, 1)
+})
