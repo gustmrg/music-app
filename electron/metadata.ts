@@ -115,3 +115,17 @@ export async function coverResponse(url: URL, coversDir: string): Promise<Respon
     return new Response(data, { headers: { "Content-Type": COVER_TYPES[name.split(".").pop() ?? ""], "Cache-Control": "max-age=31536000, immutable" } })
   } catch { return new Response(null, { status: 404 }) }
 }
+
+// Deletes cached cover files that no track in the library references anymore.
+// Only files matching COVER_NAME are touched so unrelated files stay intact.
+export async function pruneUnusedCovers(coversDir: string, usedCovers: ReadonlySet<string>): Promise<number> {
+  if (!coversDir) return 0
+  let entries: string[]
+  try { entries = await fs.readdir(coversDir) } catch { return 0 }
+  let removed = 0
+  for (const name of entries) {
+    if (!COVER_NAME.test(name) || usedCovers.has(name)) continue
+    try { await fs.unlink(path.join(coversDir, name)); removed++ } catch { /* ignore race or permission errors */ }
+  }
+  return removed
+}

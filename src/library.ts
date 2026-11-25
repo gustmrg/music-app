@@ -63,7 +63,10 @@ export function buildAlbums(tracks: Track[]): Album[] {
   const groups = new Map<string, Track[]>()
   for (const track of tracks) {
     const key = albumKey(track)
-    if (key) groups.set(key, [...(groups.get(key) ?? []), track])
+    if (!key) continue
+    let list = groups.get(key)
+    if (!list) { list = []; groups.set(key, list) }
+    list.push(track)
   }
   return [...groups].map(([key, items]) => {
     const sorted = [...items].sort(compareTrackNumbers)

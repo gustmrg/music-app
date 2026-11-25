@@ -12,7 +12,7 @@ import { TagEditor } from "@/components/TagEditor"
 import { QueueSheet } from "@/components/QueueSheet"
 import { YoutubeImportSheet } from "@/components/YoutubeImportSheet"
 import { PlaylistEditorSheet } from "@/components/PlaylistEditorSheet"
-import { albumKey, applyTagEdit, audioAccept, audioExtensions, buildAlbums, emptyLibrary, errorMessage, filterTracks, folderName, normalize, remapTrackIds, type ImportResult, type Library, type Playlist, type TagEdit, type TorrentProgress, type TorrentSaved, type Track } from "@/library"
+import { albumKey, applyTagEdit, audioAccept, audioExtensions, buildAlbums, emptyLibrary, errorMessage, filterTracks, folderName, normalize, remapTrackIds, type ImportResult, type Library, type Playlist, type Preferences, type TagEdit, type TorrentProgress, type TorrentSaved, type Track } from "@/library"
 
 type View = "library" | "albums" | "folders" | "playlists" | "liked" | "recent" | "discover"
 const navigationGroups = [
@@ -67,9 +67,32 @@ export default function App() {
   }, [notify])
 
   const { liked, recent, playlists, volume, discover, tagEdits, viewMode } = library
+  // Debounce preference writes (e.g. dragging the volume slider) and flush on
+  // unload so rapid edits do not rewrite the library JSON on every frame.
+  const pendingPreferences = useRef<Preferences | null>(null)
+  const savePreferencesTimer = useRef<number | undefined>(undefined)
+  const skipInitialPreferencesSave = useRef(true)
+  const flushPreferences = useCallback(() => {
+    window.clearTimeout(savePreferencesTimer.current)
+    savePreferencesTimer.current = undefined
+    const next = pendingPreferences.current
+    if (!next || !window.desktop) return
+    pendingPreferences.current = null
+    void window.desktop.savePreferences(next).catch(() => notify("Não foi possível salvar as alterações da biblioteca neste computador."))
+  }, [notify])
+
   useEffect(() => {
-    if (loaded && window.desktop) void window.desktop.savePreferences({ liked, recent, playlists, volume, discover, tagEdits, viewMode }).catch(() => notify("Não foi possível salvar as alterações da biblioteca neste computador."))
-  }, [loaded, liked, recent, playlists, volume, discover, tagEdits, viewMode, notify])
+    if (!loaded || !window.desktop) return
+    if (skipInitialPreferencesSave.current) { skipInitialPreferencesSave.current = false; return }
+    pendingPreferences.current = { liked, recent, playlists, volume, discover, tagEdits, viewMode }
+    window.clearTimeout(savePreferencesTimer.current)
+    savePreferencesTimer.current = window.setTimeout(flushPreferences, 300)
+  }, [loaded, liked, recent, playlists, volume, discover, tagEdits, viewMode, flushPreferences])
+
+  useEffect(() => {
+    window.addEventListener("beforeunload", flushPreferences)
+    return () => { window.removeEventListener("beforeunload", flushPreferences); flushPreferences() }
+  }, [flushPreferences])
 
   // Tags of older libraries are read in the background after loading.
   useEffect(() => {
@@ -115,6 +138,7 @@ export default function App() {
   }, [tracks, discoverTracks])
   const likedIds = useMemo(() => new Set(liked), [liked])
   const selectedPlaylist = playlists.find((playlist) => playlist.id === playlistId)
+  const selectedPlaylistPositions = useMemo(() => selectedPlaylist ? new Map(selectedPlaylist.trackIds.map((id, index) => [id, index])) : null, [selectedPlaylist])
   const fromIds = (ids: string[]) => ids.flatMap((id) => { const track = trackMap.get(id); return track ? [track] : [] })
   const visibleTracks = useMemo(() => {
     let items = tracks
@@ -377,7 +401,7 @@ export default function App() {
           <p className="muted">Músicas adicionadas, alteradas ou removidas nestas pastas atualizam a biblioteca sozinhas. Arquivos removidos ficam marcados como indisponíveis.</p>
           <ul>{library.watchedFolders.map((watched) => <li key={watched}><span title={watched}>{watched}</span><Button variant="ghost" size="sm" aria-label={`Parar de monitorar ${watched}`} onClick={() => void unwatchFolder(watched)}><EyeOff />Parar de monitorar</Button></li>)}</ul>
         </section> : null}
-        {showFolders ? <div className="collection-grid">{visibleFolders.map(([name, count]) => <button className="collection-card" key={name} onClick={() => { setFolder(name); setSearch("") }}><Folder size={30} /><strong>{folderName(name)}</strong><span title={name}>{name || "Arquivos avulsos"}</span><small>{count} música(s)</small></button>)}</div> : showPlaylists ? <div className="collection-grid">{visiblePlaylists.map((playlist) => <button className="collection-card" key={playlist.id} onClick={() => { setPlaylistId(playlist.id); setSearch("") }}><ListMusic size={30} /><strong>{playlist.name}</strong><small>{playlist.trackIds.length} música(s)</small></button>)}</div> : showAlbums ? <div className="collection-grid album-grid">{visibleAlbums.map((album) => <button className="collection-card album-card" key={album.key} onClick={() => { setAlbumId(album.key); setSearch(""); setSelected(new Set()) }}><Cover cover={album.cover} size="large" album /><strong title={album.title}>{album.title}</strong><span>{album.artist || "Artista desconhecido"}</span><small>{[album.year, `${album.trackIds.length} música(s)`].filter(Boolean).join(" · ")}</small></button>)}</div> : visibleTracks.length ? <TrackTable tracks={visibleTracks} currentId={selection.id} playing={playing} viewMode={viewMode} likedIds={likedIds} selected={selected} onSelectionChange={setSelected} onPlay={(id) => { if (id === selection.id) playerControls.current?.toggle(); else play(id, visibleTracks.map((item) => item.id)) }} onToggleLike={toggleLike} albumNumbering={!!selectedAlbum} extraActions={selectedPlaylist ? (track) => <><Button variant="ghost" size="icon-xs" disabled={selectedPlaylist.trackIds.indexOf(track.id) === 0} aria-label={`Mover ${track.title} para cima`} onClick={() => reorder(track.id, -1)}><ArrowUp /></Button><Button variant="ghost" size="icon-xs" disabled={selectedPlaylist.trackIds.indexOf(track.id) === selectedPlaylist.trackIds.length - 1} aria-label={`Mover ${track.title} para baixo`} onClick={() => reorder(track.id, 1)}><ArrowDown /></Button></> : undefined} /> : null}
+        {showFolders ? <div className="collection-grid">{visibleFolders.map(([name, count]) => <button className="collection-card" key={name} onClick={() => { setFolder(name); setSearch("") }}><Folder size={30} /><strong>{folderName(name)}</strong><span title={name}>{name || "Arquivos avulsos"}</span><small>{count} música(s)</small></button>)}</div> : showPlaylists ? <div className="collection-grid">{visiblePlaylists.map((playlist) => <button className="collection-card" key={playlist.id} onClick={() => { setPlaylistId(playlist.id); setSearch("") }}><ListMusic size={30} /><strong>{playlist.name}</strong><small>{playlist.trackIds.length} música(s)</small></button>)}</div> : showAlbums ? <div className="collection-grid album-grid">{visibleAlbums.map((album) => <button className="collection-card album-card" key={album.key} onClick={() => { setAlbumId(album.key); setSearch(""); setSelected(new Set()) }}><Cover cover={album.cover} size="large" album /><strong title={album.title}>{album.title}</strong><span>{album.artist || "Artista desconhecido"}</span><small>{[album.year, `${album.trackIds.length} música(s)`].filter(Boolean).join(" · ")}</small></button>)}</div> : visibleTracks.length ? <TrackTable tracks={visibleTracks} currentId={selection.id} playing={playing} viewMode={viewMode} likedIds={likedIds} selected={selected} onSelectionChange={setSelected} onPlay={(id) => { if (id === selection.id) playerControls.current?.toggle(); else play(id, visibleTracks.map((item) => item.id)) }} onToggleLike={toggleLike} albumNumbering={!!selectedAlbum} extraActions={selectedPlaylist && selectedPlaylistPositions ? (track) => { const position = selectedPlaylistPositions.get(track.id) ?? -1; return <><Button variant="ghost" size="icon-xs" disabled={position <= 0} aria-label={`Mover ${track.title} para cima`} onClick={() => reorder(track.id, -1)}><ArrowUp /></Button><Button variant="ghost" size="icon-xs" disabled={position === -1 || position === selectedPlaylist.trackIds.length - 1} aria-label={`Mover ${track.title} para baixo`} onClick={() => reorder(track.id, 1)}><ArrowDown /></Button></> } : undefined} /> : null}
         {selectedIds.length ? <div className="selection-bar" role="toolbar" aria-label="Ações para as músicas selecionadas">
           <strong>{selectedIds.length} selecionada(s)</strong>
           <Button size="sm" onClick={() => play(selectedIds[0], selectedIds)}><Play fill="currentColor" />Tocar</Button>

@@ -13,7 +13,7 @@ type SaveEntry = { index: number; file: TorrentFile; destination: string; copyin
 type SaveJob = { torrent: Torrent; name: string; requested: Map<number, TorrentFile>; pending: Map<number, SaveEntry>; saved: string[]; failed: number; finished: boolean }
 export type SaveOutcome = { infoHash: string; name: string; paths: string[]; failed: number; cancelled: boolean }
 export type PreparedTrack = { id: string; infoHash: string; name: string; fileName: string; length: number }
-type EngineOptions = { cachePath: string; allowUrl?: (url: string) => boolean }
+type EngineOptions = { cachePath: string; allowUrl?: (url: string) => boolean; createClient?: () => Promise<WebTorrentClient> }
 
 // webtorrent v3 is ESM-only; it is imported lazily so requiring this module
 // (from tests or before first use) never touches the network or the bundle.
@@ -61,6 +61,17 @@ export function savePath(root: string, filePath: unknown): string {
   const relative = path.relative(base, destination)
   if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("O torrent contém um nome de arquivo inválido.")
   return destination
+}
+
+// Resolves a torrent's cache folder only when it stays strictly inside
+// cachePath; untrusted or empty names never touch cachePath or its parents.
+export function cacheDirectory(cachePath: string, name: unknown): string | null {
+  if (typeof name !== "string" || !name.trim()) return null
+  const base = path.resolve(cachePath)
+  const target = path.resolve(base, name)
+  const relative = path.relative(base, target)
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return null
+  return target
 }
 
 // Reuses an identical earlier save (same size) and never overwrites a
@@ -195,7 +206,9 @@ export function defaultFileIndex(files: readonly { name: string; length: number 
 export class TorrentEngine implements VirtualTracks {
   cachePath: string
   allowUrl: (url: string) => boolean
+  createClient?: () => Promise<WebTorrentClient>
   client: WebTorrentClient | null = null
+  clientPromise: Promise<WebTorrentClient> | null = null
   torrents = new Map<string, Torrent>() // infoHash hex -> torrent
   sourceKeys = new Map<string, string>() // source string -> infoHash hex, learned on first add
   adding = new Map<string, Promise<Torrent>>() // source string -> in-flight add promise
@@ -206,19 +219,34 @@ export class TorrentEngine implements VirtualTracks {
   onSaved: ((outcome: SaveOutcome) => void) | null = null
   sweeper: NodeJS.Timeout | null = null
 
-  constructor({ cachePath, allowUrl = () => false }: EngineOptions) {
+  constructor({ cachePath, allowUrl = () => false, createClient }: EngineOptions) {
     this.cachePath = cachePath
     this.allowUrl = allowUrl
+    this.createClient = createClient
   }
 
-  async ensureClient(): Promise<WebTorrentClient> {
-    if (this.client) return this.client
-    const { default: WebTorrent } = await import("webtorrent")
-    // TCP peers only: native uTP/WebRTC modules are not rebuilt for Electron,
-    // and tracker + DHT discovery covers the public swarms we stream from.
-    this.client = new WebTorrent({ utp: false, tracker: true, dht: true, lsd: true })
-    this.client.on("error", () => {}) // per-torrent errors surface on the torrent itself
-    return this.client
+  ensureClient(): Promise<WebTorrentClient> {
+    if (this.client) return Promise.resolve(this.client)
+    if (!this.clientPromise) {
+      this.clientPromise = (async () => {
+        if (this.createClient) {
+          const client = await this.createClient()
+          this.client = client
+          return client
+        }
+        const { default: WebTorrent } = await import("webtorrent")
+        // TCP peers only: native uTP/WebRTC modules are not rebuilt for Electron,
+        // and tracker + DHT discovery covers the public swarms we stream from.
+        const client = new WebTorrent({ utp: false, tracker: true, dht: true, lsd: true })
+        client.on("error", () => {}) // per-torrent errors surface on the torrent itself
+        this.client = client
+        return client
+      })().catch((error) => {
+        this.clientPromise = null
+        throw error
+      })
+    }
+    return this.clientPromise
   }
 
   // Stream-only posture: the cache never survives a restart.
@@ -443,8 +471,8 @@ export class TorrentEngine implements VirtualTracks {
     for (const [id, entry] of this.tracks) if (entry.torrent === torrent) this.tracks.delete(id)
     if (!torrent.destroyed) torrent.destroy()
     // webtorrent writes each torrent into a folder named after the torrent.
-    const directory = path.join(this.cachePath, torrent.name)
-    fs.rm(directory, { recursive: true, force: true }).catch(() => {})
+    const directory = cacheDirectory(this.cachePath, torrent.name)
+    if (directory) fs.rm(directory, { recursive: true, force: true }).catch(() => {})
   }
 
   // The sweeper drops torrents that stopped being referenced (track skipped,
@@ -502,7 +530,9 @@ export class TorrentEngine implements VirtualTracks {
   async destroy() {
     this.stopSweeper()
     await this.stopAll({ includeSaves: true })
-    const client = this.client
+    const pending = this.clientPromise
+    this.clientPromise = null
+    const client = this.client ?? (pending ? await pending.catch(() => null) : null)
     if (client) await new Promise<void>((resolve) => client.destroy(() => resolve()))
     this.client = null
   }

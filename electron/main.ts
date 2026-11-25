@@ -1,10 +1,11 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol } from "electron"
+import { app, BrowserWindow, ipcMain, dialog, protocol, safeStorage } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import type { EventChannels, InvokeArgs, InvokeChannel, InvokeResult, SendChannel } from "../shared/ipc.ts"
 import type { Library, YouTubeResolved } from "../shared/types.ts"
 import { LocalLibrary, AUDIO_EXTENSIONS } from "./library.ts"
+import type { SecretCodec } from "./library.ts"
 import { audioResponse } from "./audio.ts"
 import { parseYouTubeLinks, fetchVideos, resolveStream } from "./youtube.ts"
 import type { YouTubeVideo } from "./youtube.ts"
@@ -172,7 +173,9 @@ function resolveYouTube(id: string, fresh = false): Promise<YouTubeResolved> {
   return job
 }
 
-handle("youtube:add", async (_win, text, name) => {
+// Fetching YouTube metadata via yt-dlp can take up to two minutes; keep it
+// outside the library queue and serialize only the library mutation.
+handleConcurrent("youtube:add", async (_win, text, name) => {
   const { targets } = parseYouTubeLinks(text)
   if (!targets.length) throw new Error("Nenhum link do YouTube válido foi encontrado no texto enviado.")
   const videos: YouTubeVideo[] = []
@@ -184,7 +187,8 @@ handle("youtube:add", async (_win, text, name) => {
     if (targets.length === 1 && target.kind === "playlist") playlistTitle = result.playlistTitle
   }
   if (!videos.length) throw new Error("Os links enviados não contêm vídeos disponíveis.")
-  return library.addVideos(videos, playlistTitle || String(name ?? "").trim().slice(0, 120))
+  const finalName = playlistTitle || String(name ?? "").trim().slice(0, 120)
+  return enqueue(() => library.addVideos(videos, finalName))
 })
 
 handleConcurrent("youtube:resolve", async (_win, id, fresh) => {
@@ -234,14 +238,32 @@ function defaultSaveFolder() {
   return path.join(music, "Local Music")
 }
 
+const ENCRYPTED_SECRET_PREFIX = "enc:v1:"
+
+// Encrypts indexer API keys with the OS keychain when available; legacy
+// plaintext values load transparently and are encrypted on the next save.
+function createSecretCodec(): SecretCodec | undefined {
+  if (!safeStorage.isEncryptionAvailable()) return undefined
+  return {
+    encrypt: (plain) => plain ? `${ENCRYPTED_SECRET_PREFIX}${safeStorage.encryptString(plain).toString("base64")}` : "",
+    decrypt: (value) => {
+      if (!value.startsWith(ENCRYPTED_SECRET_PREFIX)) return value
+      try { return safeStorage.decryptString(Buffer.from(value.slice(ENCRYPTED_SECRET_PREFIX.length), "base64")) }
+      catch { return "" }
+    },
+  }
+}
+
 app.whenReady().then(() => {
   const coversDir = path.join(app.getPath("userData"), "covers")
-  library = new LocalLibrary(path.join(app.getPath("userData"), "local-library.json"), { defaultSaveFolder: defaultSaveFolder(), coversDir })
+  library = new LocalLibrary(path.join(app.getPath("userData"), "local-library.json"), { defaultSaveFolder: defaultSaveFolder(), coversDir, secretCodec: createSecretCodec() })
   ready = library.load()
   // Keep a corrupt library intact and report the failure through the UI.
   ready.catch((error: Error) => console.error("Unable to load local library:", error.message))
-  // Tracks imported before tag support get their tags in the background.
+  // Tracks imported before tag support get their tags in the background;
+  // afterwards, remove cached cover files that no track references anymore.
   ready.then(() => library.scanPending((tracks) => broadcast("library:tracks", tracks)))
+    .then(() => enqueue(() => library.pruneCovers()))
     .catch((error: Error) => console.error("Unable to read track tags:", error.message))
   // Watch first, then catch up on what changed while the app was closed, so
   // nothing falls between the two.
