@@ -1,4 +1,5 @@
 import type { Library, Preferences, TagEdit, Track } from "../shared/types"
+import { AUDIO_ACCEPT, AUDIO_EXTENSION_PATTERN } from "../shared/audio"
 
 export type { TrackTags, Track, TagEdit, Playlist, DiscoverProvider, DiscoverConnection, DiscoverSettings, Preferences, Library, ImportResult, DiscoverResult, TorrentFile, TorrentExpansion, PreparedTorrentTrack, SaveProgress, TorrentProgress, SaveStarted, TorrentSaved } from "../shared/types"
 export type Album = { key: string; title: string; artist: string; year?: number; cover?: string; trackIds: string[] }
@@ -15,7 +16,8 @@ export function remapTrackIds<T extends Pick<Preferences, "liked" | "recent" | "
     tagEdits: Object.fromEntries(Object.entries(value.tagEdits).map(([id, edit]) => [Object.hasOwn(moved, id) ? moved[id] : id, edit])),
   }
 }
-export const audioExtensions = /\.(mp3|wav|flac|ogg|opus|m4a|aac|webm)$/i
+export const audioExtensions = AUDIO_EXTENSION_PATTERN
+export const audioAccept = AUDIO_ACCEPT
 export const folderName = (folder: string) => folder.split(/[\\/]/).filter(Boolean).pop() || "Arquivos avulsos"
 // ipcRenderer.invoke wraps main-process errors as
 // "Error invoking remote method 'x': Error: message"; show only the message.

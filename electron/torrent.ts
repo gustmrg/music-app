@@ -5,6 +5,7 @@ import path from "node:path"
 import { pipeline } from "node:stream/promises"
 import type { Instance as WebTorrentClient, Torrent, TorrentFile } from "webtorrent"
 import type { SaveProgress, SaveStarted, TorrentExpansion, TorrentProgress } from "../shared/types.ts"
+import { AUDIO_EXTENSIONS } from "../shared/audio.ts"
 import { contentTypes } from "./audio.ts"
 import type { VirtualTrack, VirtualTracks } from "./audio.ts"
 
@@ -26,14 +27,13 @@ const RESOLVE_TIMEOUT_MS = 30_000
 const MAX_REDIRECTS = 5
 const TORRENT_FILE_LIMIT = 10 * 1024 * 1024
 
-const AUDIO_EXTENSIONS = ["mp3", "wav", "flac", "ogg", "opus", "m4a", "aac", "webm"]
 const SEGMENT_LIMIT = 120
 const MAX_SAVE_DEPTH = 4
 const UNSAFE_SEGMENT = /[<>:"/\\|?*\u0000-\u001f\u007f]/g
 const RESERVED_NAME = /^(con|prn|aux|nul|com\d|lpt\d)$/i
 
 export function isAudioName(name: string): boolean {
-  return AUDIO_EXTENSIONS.includes(path.extname(name).slice(1).toLowerCase())
+  return (AUDIO_EXTENSIONS as readonly string[]).includes(path.extname(name).slice(1).toLowerCase())
 }
 
 // Torrent paths are untrusted: each segment is rewritten so it can neither
