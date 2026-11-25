@@ -1,54 +1,119 @@
-# Local Music
+<div align="center">
+  <img src="public/icon.png" alt="Local Music" width="64" height="64" />
+  <h1>Local Music</h1>
+  <p><strong>A desktop music player built around your own library.</strong></p>
+  <p>
+    Play local audio files from watched folders, find and save albums through your own
+    <strong>Prowlarr</strong> or <strong>Jackett</strong> torrent indexer, or stream from
+    <strong>YouTube</strong> — no account, no subscription, and no built-in catalog.
+  </p>
+  <p>
+    <a href="#features">Features</a> ·
+    <a href="#installation">Installation</a> ·
+    <a href="#tech-stack">Tech Stack</a> ·
+    <a href="#running-from-source">Running from Source</a> ·
+    <a href="#roadmap">Roadmap</a> ·
+    <a href="#documentation">Documentation</a>
+  </p>
+  <p>
+    <strong>English</strong> · <a href="README.pt-BR.md">Português (Brasil)</a>
+  </p>
+</div>
 
-**English** | [Português (Brasil)](README.pt-BR.md)
-
-A desktop music player built around your own library. Add the audio files already on your computer, find and download albums through your torrent indexer, or stream from YouTube. No account, no subscription, and no built-in catalog: the library starts empty and holds only what you add.
+---
 
 > [!NOTE]
 > Personal project in early development (0.x versions). It works, but it still changes a lot.
 
-## What it does
+## Features
 
-- **Local library:** add files or whole folders (MP3, FLAC, WAV, OGG, Opus, M4A, AAC, and WebM). Added folders are watched, so new, changed, and removed files update the library on their own. Embedded tags and cover art are read on import, so you can browse by Albums, Library, Folders, Favorites, and Recents, with filters by artist, genre, format, and origin.
-- **Torrents through your indexer:** **Discover** searches your own Prowlarr or Jackett, streams any track of a result right away, and saves the albums or tracks you want to keep into the library.
-- **YouTube:** paste video, playlist, or livestream links and listen by streaming, resolved through yt-dlp the moment a track plays. Livestreams also need ffmpeg.
-- **Playlists and queue:** create playlists from selected tracks, reorder them, import and export M3U/M3U8, and save the current queue.
-- **Your files stay intact:** imported files are never moved, edited, or deleted; album and tag edits live in the app only.
-- **No telemetry:** the library lives in a local file. Network access happens only for YouTube and for the indexer and torrents you configure.
+The library starts empty and holds only what you explicitly add.
+
+- **Local library & watched folders:** import individual files or whole folders (**MP3, FLAC, WAV, OGG, Opus, M4A, AAC, and WebM**). Added folders are watched automatically so new, changed, and removed files stay in sync.
+- **Tags, covers & browsing:** embedded metadata and cover art are read on import and cached locally. Browse by **Library**, **Albums**, **Folders**, **Favorites**, and **Recents**, in list or grid view, with filters by artist, genre, format, and origin.
+- **Torrents via your own indexer:** **Discover** searches your configured **Prowlarr** or **Jackett** (Torznab) instance, streams any track right away, and lets you save the albums or tracks you want to keep into your library.
+- **YouTube videos, playlists & livestreams:** paste links to stream audio resolved on demand through `yt-dlp`. Livestreams play via `ffmpeg` and reconnect automatically if dropped.
+- **Playlists & queue:** build playlists from selected tracks, reorder them, import and export UTF-8 **M3U/M3U8** files, and save the active queue as a playlist.
+- **Non-destructive by design:** imported audio files are never moved, edited, or deleted. Album and tag edits live in the app only and can be reverted anytime.
+- **Local-first, no telemetry:** your library, playlists, and preferences live in a local JSON file. Network requests happen only for YouTube and for the indexer and torrents you configure.
+
+---
 
 ## Installation
 
-Download the installer from the [Releases](https://github.com/gustmrg/music-app/releases) page (macOS arm64, Windows x64, and Linux x64). YouTube requires an up-to-date [yt-dlp](https://github.com/yt-dlp/yt-dlp) installed on the system ([how to update](docs/installation.md#keep-yt-dlp-up-to-date)), and Discover requires a Prowlarr or Jackett instance.
+Download the latest installer from the [Releases](https://github.com/gustmrg/music-app/releases) page (each release includes a `SHA256SUMS.txt` file for verification):
+
+| Platform | Package | Architecture |
+| --- | --- | --- |
+| **macOS** | `.dmg` | Apple Silicon (`arm64`), macOS 13+ |
+| **Windows** | `.exe` (NSIS) | `x64` |
+| **Linux** | `.AppImage` / `.deb` | `x64` |
+
+### Optional dependencies
+
+The local library and player work out of the box. External tools are only needed for network features:
+
+- **YouTube:** requires an up-to-date [yt-dlp](https://github.com/yt-dlp/yt-dlp) on your `PATH` ([how to update](docs/installation.md#keep-yt-dlp-up-to-date)). Livestreams also require [ffmpeg](https://ffmpeg.org) on your `PATH`.
+- **Discover:** requires your own **Prowlarr** or **Jackett** (Torznab) instance, configured in **Settings → Indexer**.
 
 > [!IMPORTANT]
-> The apps are **not signed**. macOS and Windows show a warning the first time you open them; see how to allow the app in [Installation](docs/installation.md#unsigned-app).
+> The installers are **not signed**. macOS and Windows show a warning the first time you open the app; see how to allow it in [Installation](docs/installation.md#unsigned-app).
 
 > [!WARNING]
 > Torrent streams download **and upload** pieces of files to other peers, who can see your IP address. Whether this is legal depends on your country and on the content. You are responsible for what you search, play, and save.
 
-## Roadmap
+---
 
-- Save the audio of YouTube tracks and livestreams into the library.
+## Tech Stack
 
-## Running from source
+| Layer | Technology |
+| --- | --- |
+| **Desktop runtime** | Electron 45 (TypeScript main process & sandboxed preload bundled with esbuild) |
+| **Interface** | React 19, Vite, TypeScript, Tailwind CSS v4, Base UI, Lucide |
+| **Audio & metadata** | `HTMLAudioElement`, custom `local-music://` protocol (byte-range streaming), `music-metadata` |
+| **Integrations** | `webtorrent`, Prowlarr / Torznab XML API, `yt-dlp`, `ffmpeg` |
+
+---
+
+## Running from Source
+
+Requires **Node.js 22.18+** and **npm** (CI pins Node.js 24.22.1 to match Electron's bundled runtime).
 
 ```bash
 npm install
-npm run dev          # Vite + Electron
-npm test
+npm run dev
 ```
 
-Requires Node.js 22.18 or later (CI uses 24, the version bundled with Electron). See [Development](docs/development.md) for the project layout.
+| Command | Description |
+| --- | --- |
+| `npm run dev` | Start Vite and Electron with main-process rebuilds and restarts |
+| `npm run dev:web` | Start the limited browser preview at `http://127.0.0.1:5173` |
+| `npm run typecheck` | Type-check renderer, main process, preload, and the IPC contract |
+| `npm test` | Run main-process tests (`electron/*.test.ts`) directly with Node |
+| `npm run build` | Build renderer (`dist/`) and Electron bundles (`dist-electron/`) |
+| `npm run dist` | Package platform installers into `release/` |
+
+See [Development](docs/development.md) for the project layout and security model.
+
+---
+
+## Roadmap
+
+- [ ] Save the audio of YouTube tracks and livestreams into the library.
+
+---
 
 ## Documentation
 
-- [Installation](docs/installation.md): downloads, the unsigned app, updates, and YouTube.
-- [Usage](docs/usage.md): library, albums, playlists, Discover, YouTube, and current limits.
-- [Development](docs/development.md): scripts, project layout, and security.
-- [Releases](docs/releasing.md): how to publish a version.
-- [Decisions](docs/adr/README.md): architecture decision records.
+- [Installation](docs/installation.md) — downloads, unsigned app warnings, updates, and YouTube setup
+- [Usage](docs/usage.md) — library, albums, playlists, Discover, YouTube, and current limits
+- [Development](docs/development.md) — scripts, project layout, and security model
+- [Releases](docs/releasing.md) — how versions are tagged and published
+- [Architecture Decisions](docs/adr/README.md) — architecture decision records (ADRs)
 
-The documentation is in English. Only the README is also available in Portuguese.
+The detailed documentation is in English. Only the README is also available in Portuguese.
+
+---
 
 ## License
 
