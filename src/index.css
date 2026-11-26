@@ -311,6 +311,12 @@ h1 { margin: 0; font-size: 32px; line-height: 1.2; letter-spacing: -1px; font-we
 .settings-section > p { margin: 12px 0; }
 .settings-section h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 20px; font-size: 15px; }
 .settings-path { white-space: normal !important; display: block; padding: 12px; background: #131316; border: 1px solid #303038; border-radius: 8px; overflow-wrap: anywhere; color: #ccc; font-size: 12px; }
+.update-settings > p { margin: 12px 0; }
+.update-settings > p:first-child { margin-top: 0; }
+.update-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.update-progress { display: block; width: 100%; height: 6px; appearance: none; border: 0; border-radius: 999px; overflow: hidden; background: #44444f; }
+.update-progress::-webkit-progress-bar { background: #44444f; }
+.update-progress::-webkit-progress-value { background: #ec4141; border-radius: 999px; }
 .settings-footer { display: flex; justify-content: flex-end; margin-top: 24px; }
 @media (hover: none) { .track-cover-overlay { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .track-cover-overlay { transition: none; } }

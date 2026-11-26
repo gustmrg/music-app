@@ -1,11 +1,12 @@
 import { useState } from "react"
 import { Dialog } from "@base-ui/react/dialog"
-import { FolderOpen, Loader2, Settings2, X } from "lucide-react"
+import { FolderOpen, Loader2, RefreshCw, Settings2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { IndexerSettings } from "@/components/IndexerSettings"
+import { UpdateSettings } from "@/components/UpdateSettings"
 import type { DiscoverSettings } from "@/library"
 
-export type SettingsSection = "storage" | "indexer"
+export type SettingsSection = "storage" | "indexer" | "updates"
 
 export function SettingsDialog({ open, onOpenChange, saveFolder, loaded, onChooseSaveFolder, section, onSectionChange, discover, onSaveDiscover }: {
   section: SettingsSection
@@ -33,11 +34,12 @@ export function SettingsDialog({ open, onOpenChange, saveFolder, loaded, onChoos
       <Dialog.Backdrop className="settings-backdrop" />
       <Dialog.Popup className="settings-dialog">
         <div className="settings-heading"><Dialog.Title>Configurações</Dialog.Title><Dialog.Close render={<Button variant="ghost" size="icon" aria-label="Fechar configurações" />}><X /></Dialog.Close></div>
-        <Dialog.Description className="muted">Gerencie o armazenamento das músicas e a conexão com seu indexador.</Dialog.Description>
+        <Dialog.Description className="muted">Gerencie o armazenamento das músicas, a conexão com seu indexador e as atualizações do Playmio.</Dialog.Description>
         <div className="settings-layout">
           <nav className="settings-nav" aria-label="Seções das configurações">
             <Button variant="ghost" className={section === "storage" ? "active" : ""} aria-current={section === "storage" ? "page" : undefined} aria-controls="settings-storage" onClick={() => onSectionChange("storage")}><FolderOpen size={16} />Armazenamento</Button>
             <Button variant="ghost" className={section === "indexer" ? "active" : ""} aria-current={section === "indexer" ? "page" : undefined} aria-controls="settings-indexer" onClick={() => onSectionChange("indexer")}><Settings2 size={16} />Indexador</Button>
+            <Button variant="ghost" className={section === "updates" ? "active" : ""} aria-current={section === "updates" ? "page" : undefined} aria-controls="settings-updates" onClick={() => onSectionChange("updates")}><RefreshCw size={16} />Atualizações</Button>
           </nav>
           <div className="settings-panels">
         <section id="settings-storage" hidden={section !== "storage"} className="settings-section" aria-labelledby="storage-heading">
@@ -51,6 +53,10 @@ export function SettingsDialog({ open, onOpenChange, saveFolder, loaded, onChoos
         <section id="settings-indexer" hidden={section !== "indexer"} className="settings-section" aria-labelledby="indexer-heading">
           <h2 id="indexer-heading"><Settings2 size={18} />Indexador de torrents</h2>
           {loaded ? <IndexerSettings settings={discover} onSave={onSaveDiscover} loaded={loaded} /> : <p className="muted">Carregando configurações…</p>}
+        </section>
+        <section id="settings-updates" hidden={section !== "updates"} className="settings-section" aria-labelledby="updates-heading">
+          <h2 id="updates-heading"><RefreshCw size={18} />Atualizações</h2>
+          <UpdateSettings />
         </section>
           </div>
         </div>

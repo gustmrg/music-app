@@ -14,6 +14,8 @@ import { TorrentEngine } from "./torrent.ts"
 import { coverResponse } from "./metadata.ts"
 import { LiveStreams, ffmpegAvailable, FFMPEG_MISSING } from "./live.ts"
 import { FolderWatchers } from "./folders.ts"
+import { autoUpdater, DebUpdater, PacmanUpdater, RpmUpdater } from "electron-updater"
+import { UpdateService, relaunchAfterExit, resolveAutoInstallSupport } from "./updates.ts"
 
 // This file is bundled to dist-electron/main.cjs, next to preload.cjs.
 const isDev = !app.isPackaged
@@ -22,6 +24,7 @@ const entryURL = isDev ? "http://127.0.0.1:5173/" : pathToFileURL(path.join(impo
 let library: LocalLibrary
 let engine: TorrentEngine
 let watchers: FolderWatchers | undefined
+let updates: UpdateService
 let ready: Promise<Library>
 let operations: Promise<unknown> = Promise.resolve()
 protocol.registerSchemesAsPrivileged([
@@ -232,6 +235,21 @@ handleConcurrent("torrent:stop", (_win, includeSaves) => engine.stopAll({ includ
 handleConcurrent("torrent:save", (_win, source, fileIndexes) => engine.save(source, fileIndexes, library.saveFolderPath()))
 handleConcurrent("torrent:save-track", (_win, id) => engine.saveTrack(id, library.saveFolderPath()))
 
+const RELEASES_URL = "https://github.com/gustmrg/playmio/releases/latest"
+
+// deb, rpm, and pacman updates install through pkexec, which cannot raise
+// privileges from a process started by `app.relaunch()` (see relaunchAfterExit).
+function installsThroughPackageManager() {
+  return autoUpdater instanceof DebUpdater || autoUpdater instanceof RpmUpdater || autoUpdater instanceof PacmanUpdater
+}
+
+// Updates talk to GitHub and stay outside the library queue.
+handleConcurrent("update:state", () => updates.state)
+handleConcurrent("update:check", () => updates.check())
+handleConcurrent("update:download", () => updates.download())
+handleConcurrent("update:install", () => updates.install())
+handleConcurrent("update:release-notes", () => shell.openExternal(RELEASES_URL))
+
 // Watched folders report changes from outside the app; reconciling them is a
 // library mutation, so it goes through the queue like any import.
 function reconcileFolders(scopes: string[]) {
@@ -265,7 +283,7 @@ function createSecretCodec(): SecretCodec | undefined {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   const coversDir = path.join(app.getPath("userData"), "covers")
   library = new LocalLibrary(path.join(app.getPath("userData"), "local-library.json"), { defaultSaveFolder: defaultSaveFolder(), coversDir, secretCodec: createSecretCodec() })
   ready = library.load()
@@ -308,6 +326,14 @@ app.whenReady().then(() => {
       }
       return audioResponse(request, library, engine)
     } catch { return new Response(null, { status: 404 }) }
+  })
+  updates = new UpdateService({
+    updater: autoUpdater,
+    current: app.getVersion(),
+    enabled: app.isPackaged,
+    autoInstall: app.isPackaged && await resolveAutoInstallSupport(process.platform, process.execPath),
+    relaunchAfterInstall: installsThroughPackageManager() ? () => relaunchAfterExit(process.pid, process.execPath, process.argv.slice(1)) : undefined,
+    onChange: (state) => broadcast("update:state", state),
   })
   createWindow()
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })

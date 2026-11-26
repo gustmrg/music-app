@@ -1,6 +1,6 @@
 import type {
   DiscoverResult, DiscoverSettings, DiscoverTest, ImportResult, Library, MissingRemoved, Preferences, PreparedTorrentTrack,
-  SaveStarted, TorrentExpansion, TorrentProgress, TorrentSaved, Track, YouTubeResolved,
+  SaveStarted, TorrentExpansion, TorrentProgress, TorrentSaved, Track, UpdateState, YouTubeResolved,
 } from "./types.ts"
 
 // The single IPC contract. electron/main.ts registers handlers against it,
@@ -33,6 +33,13 @@ export interface InvokeChannels {
   "torrent:stop": { args: [includeSaves: boolean]; result: void }
   "torrent:save": { args: [source: string, fileIndexes: number[]]; result: SaveStarted }
   "torrent:save-track": { args: [id: string]; result: SaveStarted }
+  // Updates act on the release the main process found; the renderer never
+  // sends a URL or a path.
+  "update:state": { args: []; result: UpdateState }
+  "update:check": { args: []; result: void }
+  "update:download": { args: []; result: void }
+  "update:install": { args: []; result: void }
+  "update:release-notes": { args: []; result: void }
 }
 
 // ipcRenderer.send → ipcMain.on, fire and forget.
@@ -46,6 +53,7 @@ export interface EventChannels {
   "library:moved": Record<string, string>
   "torrent:progress": TorrentProgress[]
   "torrent:saved": TorrentSaved
+  "update:state": UpdateState
 }
 
 export type InvokeChannel = keyof InvokeChannels
@@ -84,4 +92,10 @@ export interface DesktopApi {
   onLibraryTracks: Subscribe<"library:tracks">
   onLibraryMoved: Subscribe<"library:moved">
   onTorrentProgress: Subscribe<"torrent:progress">
+  updateState: Invoke<"update:state">
+  checkForUpdate: Invoke<"update:check">
+  downloadUpdate: Invoke<"update:download">
+  installUpdate: Invoke<"update:install">
+  openReleaseNotes: Invoke<"update:release-notes">
+  onUpdateState: Subscribe<"update:state">
 }

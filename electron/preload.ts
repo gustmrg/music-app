@@ -47,6 +47,12 @@ const desktop: DesktopApi = {
   onLibraryTracks: subscribe("library:tracks"),
   onLibraryMoved: subscribe("library:moved"),
   onTorrentProgress: subscribe("torrent:progress"),
+  updateState: () => invoke("update:state"),
+  checkForUpdate: () => invoke("update:check"),
+  downloadUpdate: () => invoke("update:download"),
+  installUpdate: () => invoke("update:install"),
+  openReleaseNotes: () => invoke("update:release-notes"),
+  onUpdateState: subscribe("update:state"),
 }
 
 contextBridge.exposeInMainWorld("desktop", desktop)
