@@ -41,7 +41,7 @@ input[type="range"]:disabled { cursor: default; opacity: .4; }
 .app-shell { display: grid; grid-template-columns: 214px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 106px; height: 100dvh; overflow: hidden; }
 .sidebar { background: #17171c; border-right: 1px solid #24242b; padding: 0 16px; display: flex; flex-direction: column; min-height: 0; }
 .brand { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 700; height: 80px; flex-shrink: 0; letter-spacing: -.5px; }
-.brand-icon { background: #ec4141; color: #fff; border-radius: 10px; width: 32px; height: 32px; display: grid; place-items: center; }
+.brand-icon { width: 32px; height: 32px; border-radius: 8px; display: block; flex-shrink: 0; }
 .sidebar-label { font-size: 10px; font-weight: 600; letter-spacing: 1.5px; color: #888894; margin: 20px 10px 12px; }
 .sidebar nav, .nav-group { display: flex; flex-direction: column; gap: 5px; }
 .nav-group + .nav-group .sidebar-label { margin-top: 14px; }
