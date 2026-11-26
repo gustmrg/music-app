@@ -13,8 +13,8 @@ Releases are produced by the [Desktop release](../.github/workflows/release.yml)
 ## What the workflow does
 
 1. **version** resolves the version from `package.json`, rejects an existing tag or a prerelease, and finds the previous tag for the release notes.
-2. **verify** (`typecheck`, `test`, `build`) and **package** run in parallel. `package` produces a DMG (macOS arm64), NSIS (Windows x64), and AppImage and deb (Linux x64).
-3. **release** runs only if both pass. It commits the version bump (`chore(release): prepare v<version>`) to `main`, creates the `v<version>` tag, generates `SHA256SUMS.txt`, creates the release as a draft with automatic notes, uploads the files, and only then publishes it.
+2. **verify** (`typecheck`, `test`, `build`) and **package** run in parallel. `package` produces a DMG and ZIP (macOS arm64), NSIS (Windows x64), and AppImage and deb (Linux x64), plus the update feed that the app reads: `latest.yml`, `latest-mac.yml`, `latest-linux.yml`, and the `.blockmap` files.
+3. **release** runs only if both pass. It commits the version bump (`chore(release): prepare v<version>`) to `main`, creates the `v<version>` tag, generates `SHA256SUMS.txt` for every uploaded file, creates the release as a draft with automatic notes, uploads the files, and only then publishes it.
 
 If any step fails before the `release` job, nothing is committed or tagged.
 

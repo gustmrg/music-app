@@ -80,7 +80,7 @@ jobs:
         include:
           - os: macos-15
             name: macos
-            builder-args: --mac dmg --arm64
+            builder-args: --mac dmg zip --arm64
           - os: ubuntu-latest
             name: linux
             builder-args: --linux AppImage deb --x64
@@ -100,6 +100,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm version "${{ needs.version.outputs.version }}" --no-git-tag-version --allow-same-version
+      # The publish config only writes the update feed (latest*.yml) that
+      # electron-updater reads; the release job uploads it with the installers.
       - name: Build and package
         env:
           # The app is not signed or notarized.
@@ -110,9 +112,12 @@ jobs:
           name: desktop-${{ matrix.name }}
           path: |
             release/*.dmg
+            release/*.zip
             release/*.AppImage
             release/*.deb
             release/*.exe
+            release/latest*.yml
+            release/*.blockmap
           if-no-files-found: error
           retention-days: 30
 

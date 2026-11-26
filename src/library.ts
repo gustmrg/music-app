@@ -1,7 +1,7 @@
 import type { Library, Preferences, TagEdit, Track } from "../shared/types"
 import { AUDIO_ACCEPT, AUDIO_EXTENSION_PATTERN } from "../shared/audio"
 
-export type { TrackTags, Track, TagEdit, Playlist, DiscoverProvider, DiscoverConnection, DiscoverSettings, Preferences, Library, ImportResult, DiscoverResult, TorrentFile, TorrentExpansion, PreparedTorrentTrack, SaveProgress, TorrentProgress, SaveStarted, TorrentSaved } from "../shared/types"
+export type { TrackTags, Track, TagEdit, Playlist, DiscoverProvider, DiscoverConnection, DiscoverSettings, Preferences, Library, ImportResult, DiscoverResult, TorrentFile, TorrentExpansion, PreparedTorrentTrack, SaveProgress, TorrentProgress, SaveStarted, TorrentSaved, UpdateState } from "../shared/types"
 export type Album = { key: string; title: string; artist: string; year?: number; cover?: string; trackIds: string[] }
 export const INDEXER_GUIDE_URL = "https://github.com/gustmrg/playmio/blob/main/docs/installation.md#indexer-discover"
 export const emptyLibrary: Library = { tracks: [], liked: [], recent: [], playlists: [], tagEdits: {}, volume: 0.7, viewMode: "list", discover: { provider: "torznab", url: "", apiKey: "", categories: "3000", profiles: {}, noticeAccepted: false }, saveFolder: "", watchedFolders: [] }

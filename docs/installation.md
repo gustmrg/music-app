@@ -44,7 +44,14 @@ SmartScreen shows "Windows protected your PC." Click **More info**, then **Run a
 
 ## Updates
 
-The app does not update itself. To update, install the latest release over the previous one. Your library lives in `local-library.json` in the user data directory and is kept.
+Open **Settings → Updates** and click **Verificar atualizações**. The app checks for updates only when you ask, and downloads one only after you click **Baixar atualização**. Then **Reiniciar e instalar** closes Playmio, installs the update, and opens it again; if you just close Playmio instead, the update installs as it closes:
+
+- **Windows:** the installer replaces the app.
+- **Linux AppImage:** the new AppImage replaces the current one.
+- **Linux deb:** the system asks for your password to install the package.
+- **macOS:** the app is not signed, so it cannot update itself. It shows the new version and opens its release page; download the DMG and replace **Playmio** in Applications. The [unsigned app](#macos) steps may be needed again.
+
+Version 0.1.0 cannot update itself; install the next version by hand from the [Releases](https://github.com/gustmrg/playmio/releases) page. You can always install the latest release over the previous one that way. Your library lives in `local-library.json` in the user data directory and is kept. See [ADR 6](adr/0006-updates-from-github-releases.md) for how updates work.
 
 ## YouTube
 

@@ -14,7 +14,7 @@ npm run dist         # packaging into release/
 
 The main process and preload are TypeScript in `electron/`. `scripts/build-electron.mjs` bundles them with esbuild into `dist-electron/main.cjs` and `dist-electron/preload.cjs`, which is what Electron and the packaged app load; see [ADR 4](adr/0004-main-process-in-typescript.md). The IPC contract lives in `shared/ipc.ts`: the main process registers handlers against it, the preload exposes it as `window.desktop`, and the renderer reads it, so a mismatch fails the typecheck.
 
-The packaging targets are DMG, NSIS, AppImage, and deb. The app's internal identifier (`appId`) stays the same to keep its data directory. Changes go in through pull requests, and [CI](../.github/workflows/ci.yml) runs `typecheck`, `test`, and `build`. To publish a version, see [Releases](releasing.md).
+The packaging targets are DMG, NSIS, AppImage, and deb, plus a macOS ZIP for the update feed. The app's internal identifier (`appId`) stays the same to keep its data directory. Changes go in through pull requests, and [CI](../.github/workflows/ci.yml) runs `typecheck`, `test`, and `build`. To publish a version, see [Releases](releasing.md).
 
 ## Layout
 
@@ -29,6 +29,7 @@ electron/
   preload.ts         restricted API exposed to the interface
   library.ts         files, playlists, watched folders, and JSON persistence
   folders.ts         watches added folders and reports changes (debounced)
+  updates.ts         in-app updates through electron-updater and GitHub releases
   metadata.ts        embedded tags and cover art
   youtube.ts         YouTube links, metadata, and stream resolution via yt-dlp
   discover.ts        Prowlarr and Torznab search

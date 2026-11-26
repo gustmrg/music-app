@@ -34,3 +34,21 @@ export type SaveStarted = { infoHash: string; name: string; queued: number; pend
 export type TorrentSaved = { name: string; saved: number; failed: number; cancelled: boolean; result: ImportResult | null; error?: string }
 
 export type YouTubeResolved = { url: string; isLive: boolean }
+
+// The main process owns the update state, so a download keeps going and stays
+// visible when the settings dialog closes. `current` is the installed version.
+export type UpdateStatus =
+  // Development builds have no update feed.
+  | { status: "unsupported" }
+  | { status: "idle" }
+  | { status: "checking" }
+  | { status: "current" }
+  | { status: "failed"; message: string }
+  // error reports a failed download, which can be retried.
+  | { status: "available"; version: string; error?: string }
+  // The macOS build is unsigned, so it cannot install updates in place.
+  | { status: "manual"; version: string }
+  | { status: "downloading"; version: string; percent: number }
+  | { status: "downloaded"; version: string }
+  | { status: "installing"; version: string }
+export type UpdateState = UpdateStatus & { current: string }

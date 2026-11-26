@@ -9,5 +9,6 @@ Each record explains one architectural decision: the context, what was decided, 
 | [3](0003-youtube-lives-via-ffmpeg.md) | YouTube livestreams play through yt-dlp and ffmpeg | accepted |
 | [4](0004-main-process-in-typescript.md) | Main process in TypeScript, bundled to CommonJS | accepted |
 | [5](0005-watched-folders-keep-missing-tracks.md) | Watched folders keep tracks whose files disappear | accepted |
+| [6](0006-updates-from-github-releases.md) | In-app updates through electron-updater and GitHub releases | accepted |
 
 New records use the next number and the same sections: Context, Decision, Consequences, Alternatives considered.
