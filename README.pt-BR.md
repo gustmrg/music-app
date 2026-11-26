@@ -54,7 +54,7 @@ Baixe o instalador mais recente na página de [Releases](https://github.com/gust
 A biblioteca local e o player funcionam sem nada extra. Ferramentas externas são necessárias apenas para recursos de rede:
 
 - **YouTube:** exige o [yt-dlp](https://github.com/yt-dlp/yt-dlp) atualizado no `PATH` ([como atualizar](docs/installation.md#keep-yt-dlp-up-to-date)). Transmissões ao vivo também exigem o [ffmpeg](https://ffmpeg.org) no `PATH`.
-- **Descobrir:** exige sua própria instância do **Prowlarr** ou **Jackett** (Torznab), configurada em **Configurações → Indexador**.
+- **Descobrir:** exige sua própria instância do **Prowlarr** ou **Jackett** (Torznab) rodando separadamente, configurada em **Configurações → Indexador** ([guia de configuração](docs/installation.md#indexer-discover)).
 
 > [!IMPORTANT]
 > Os instaladores **não são assinados**. macOS e Windows mostram um aviso na primeira abertura; veja como liberar o aplicativo em [Installation](docs/installation.md#unsigned-app).
@@ -105,7 +105,7 @@ Veja [Development](docs/development.md) para a estrutura do projeto e o modelo d
 
 ## Documentação
 
-- [Installation](docs/installation.md) — downloads, avisos de app sem assinatura, atualizações e configuração do YouTube
+- [Installation](docs/installation.md) — downloads, avisos de app sem assinatura, atualizações, YouTube e configuração de indexadores
 - [Usage](docs/usage.md) — biblioteca, álbuns, playlists, Descobrir, YouTube e limites atuais
 - [Development](docs/development.md) — scripts, estrutura do projeto e modelo de segurança
 - [Releases](docs/releasing.md) — como versões são marcadas e publicadas

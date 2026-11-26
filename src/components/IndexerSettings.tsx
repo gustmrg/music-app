@@ -1,9 +1,9 @@
 import { useState } from "react"
-import { Loader2 } from "lucide-react"
+import { ExternalLink, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { InfoTip } from "@/components/ui/info-tip"
-import { errorMessage, type DiscoverConnection, type DiscoverProvider, type DiscoverSettings } from "@/library"
+import { INDEXER_GUIDE_URL, errorMessage, type DiscoverConnection, type DiscoverProvider, type DiscoverSettings } from "@/library"
 
 export function IndexerSettings({ settings, onSave, loaded }: { settings: DiscoverSettings; onSave: (settings: DiscoverSettings) => void; loaded: boolean }) {
   const [draft, setDraft] = useState(settings)
@@ -38,7 +38,7 @@ export function IndexerSettings({ settings, onSave, loaded }: { settings: Discov
   }
 
   return <form className="indexer-form" onSubmit={(event) => { event.preventDefault(); save() }}>
-    <p className="muted">Conecte o seu Prowlarr ou Jackett. Nada é buscado sem esta configuração.</p>
+    <p className="muted">Conecte uma instância do Prowlarr ou Jackett rodando separadamente. Nada é buscado sem esta configuração.{" "}<a className="inline-link" href={INDEXER_GUIDE_URL} target="_blank" rel="noreferrer">Guia de configuração <ExternalLink size={12} aria-hidden="true" /></a></p>
     <fieldset disabled={!window.desktop || !loaded || testing}>
       <div className="provider-toggle" role="group" aria-label="Tipo de indexador">
         <Button type="button" size="sm" variant={prowlarr ? "default" : "outline"} aria-pressed={prowlarr} onClick={() => switchProvider("prowlarr")}>Prowlarr</Button>

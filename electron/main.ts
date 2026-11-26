@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol, safeStorage } from "electron"
+import { app, BrowserWindow, ipcMain, dialog, protocol, safeStorage, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
@@ -71,6 +71,13 @@ function handleConcurrent<C extends InvokeChannel>(channel: C, action: Handler<C
   register(channel, action, false)
 }
 
+function isAllowedExternalUrl(raw: string) {
+  try {
+    const parsed = new URL(raw)
+    return parsed.protocol === "https:" && parsed.origin === "https://github.com" && parsed.pathname.startsWith("/gustmrg/playmio/")
+  } catch { return false }
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1280, height: 820, minWidth: 820, minHeight: 600,
@@ -80,7 +87,11 @@ function createWindow() {
     webPreferences: { preload: path.join(import.meta.dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true },
   })
   win.once("ready-to-show", () => win.show())
-  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }))
+  // Never spawn secondary Electron windows; open only allowlisted project docs in the system browser.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (isAllowedExternalUrl(url)) void shell.openExternal(url)
+    return { action: "deny" }
+  })
   win.webContents.on("will-navigate", (event, url) => { if (url !== entryURL) event.preventDefault() })
   win.loadURL(entryURL)
 }

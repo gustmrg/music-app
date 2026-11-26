@@ -65,3 +65,31 @@ Update it with the same tool you installed it with:
 | winget | `winget upgrade yt-dlp` |
 
 Linux distribution packages (`apt`, `dnf`) often lag behind; if updating through them does not help, install yt-dlp with pipx or the standalone binary instead. Check the installed version with `yt-dlp --version`. You do not need to restart the app after updating: playing the failed track again asks yt-dlp for a new stream.
+
+## Indexer (Discover)
+
+**Discover** searches your own torrent indexer manager. Playmio does not bundle, install, or run an indexer for you — you run **Prowlarr** or **Jackett** (or another Torznab-compatible service) separately on your computer or local network, and connect Playmio to it. The local library, player, and YouTube work without an indexer.
+
+### Prowlarr vs. Jackett (Torznab)
+
+Both translate searches across the torrent indexers you add to them:
+
+- **[Prowlarr](https://prowlarr.com)** ([GitHub](https://github.com/Prowlarr/Prowlarr)) — **recommended if you are starting from scratch.** Modern interface from the *\*arr* ecosystem. Playmio uses Prowlarr's native API (`/api/v1/search`), which queries all active torrent indexers at once and deduplicates results by info hash.
+- **[Jackett](https://github.com/Jackett/Jackett) / Torznab** — older project focused on exposing torrent indexers through the standard Torznab XML API. In Playmio, the **Torznab (Jackett)** mode works with Jackett's aggregate `all` feed as well as any other Torznab-compatible endpoint.
+
+### Setup steps
+
+1. **Install and start the service** using its native installer or Docker:
+   - Prowlarr listens on `http://localhost:9696` by default.
+   - Jackett listens on `http://localhost:9117` by default.
+2. **Add at least one torrent indexer** in its web dashboard:
+   - In Prowlarr: **Indexers → Add Indexer**.
+   - In Jackett: **Add indexer**.
+3. **Copy the address and API key:**
+   - **Prowlarr:** use the base address (`http://localhost:9696`) and copy the key from **Settings → General → Security → API Key**.
+   - **Jackett:** use the aggregate Torznab endpoint (`http://localhost:9117/api/v2.0/indexers/all/results/torznab/`) and copy the API key shown at the top of the dashboard.
+4. **Connect in Playmio:** open **Settings → Indexer**, choose **Prowlarr** or **Torznab (Jackett)**, paste the address and API key, optionally adjust categories (default `3000` for Audio; `3000,3010,3040` for MP3 and FLAC), click **Testar conexão**, and save.
+
+### Out of Playmio's scope
+
+Playmio only talks to the indexer API you configure. Choosing trackers, solving Cloudflare challenges (which may require configuring FlareSolverr inside Prowlarr or Jackett), and keeping the indexer service running are managed outside Playmio.

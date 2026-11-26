@@ -130,6 +130,9 @@ h1 { margin: 0; font-size: 32px; line-height: 1.2; letter-spacing: -1px; font-we
 .empty-icon svg { width: 31px; height: 31px; }
 .empty-state h2 { font-size: 21px; font-weight: 500; letter-spacing: -.5px; margin: 0 0 10px; }
 .empty-state p { color: #8b8b9a; font-size: 13px; line-height: 1.8; max-width: 370px; margin: 0 0 22px; }
+.empty-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; }
+.inline-link { display: inline-flex; align-items: center; gap: 4px; color: #f06468; text-decoration: none; }
+.inline-link:hover { text-decoration: underline; }
 .player-bar { grid-column: 1 / -1; background: #1a1a20; border-top: 1px solid #303038; display: grid; grid-template-columns: minmax(200px, 1fr) minmax(230px, 1.3fr) minmax(140px, .8fr); gap: 24px; padding: 16px 24px; align-items: center; z-index: 10; }
 .player-track { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .player-track strong { display: block; font-size: 12px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
