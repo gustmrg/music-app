@@ -2,7 +2,7 @@ import { spawn as spawnProcess } from "node:child_process"
 import type { ChildProcess } from "node:child_process"
 
 // YouTube lives resolve to HLS manifests, which <audio> cannot play. Each
-// live is served at local-music://live/<id> as raw AAC remuxed by ffmpeg
+// live is served at playmio://live/<id> as raw AAC remuxed by ffmpeg
 // (no re-encoding), so the player keeps using a plain <audio> element.
 // See docs/adr/0003-youtube-lives-via-ffmpeg.md.
 

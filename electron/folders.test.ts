@@ -156,7 +156,7 @@ function reports() {
 }
 
 async function realFolder(t: TestContext) {
-  const folder = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "local-music-watch-")))
+  const folder = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "playmio-watch-")))
   t.after(() => fs.rm(folder, { recursive: true, force: true }))
   return folder
 }

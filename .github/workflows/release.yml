@@ -157,7 +157,7 @@ jobs:
         run: |
           FLAGS=(--draft --generate-notes)
           if [[ -n "$PREVIOUS" ]]; then FLAGS+=(--notes-start-tag "$PREVIOUS"); fi
-          gh release create "$TAG" --verify-tag --title "Local Music $TAG" "${FLAGS[@]}"
+          gh release create "$TAG" --verify-tag --title "Playmio $TAG" "${FLAGS[@]}"
           gh release upload "$TAG" --clobber artifacts/*
           # Published last, so nobody sees a release with missing files.
           gh release edit "$TAG" --draft=false --latest

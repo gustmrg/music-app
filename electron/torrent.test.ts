@@ -131,7 +131,7 @@ test("savePath keeps torrent paths inside the save folder", () => {
 })
 
 test("availablePath reuses identical saves and never overwrites different files", async (t) => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "local-music-save-"))
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "playmio-save-"))
   t.after(() => fs.rm(root, { recursive: true, force: true }))
   const file = path.join(root, "Song.flac")
   assert.deepEqual(await availablePath(file, 4), { path: file, exists: false })
@@ -157,7 +157,7 @@ function fakeTorrent(infoHash: string, name: string, entries: [relative: string,
 }
 
 async function engineFixture(t: TestContext) {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "local-music-engine-"))
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "playmio-engine-"))
   const engine = new TorrentEngine({ cachePath: path.join(root, "cache") })
   t.after(async () => { engine.stopSweeper(); await fs.rm(root, { recursive: true, force: true }) })
   const outcomes: SaveOutcome[] = []
@@ -342,7 +342,7 @@ test("destroyTorrent only removes cache directories strictly inside cachePath", 
 })
 
 test("ensureClient initializes webtorrent only once across concurrent calls", async (t) => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "local-music-client-"))
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "playmio-client-"))
   t.after(() => fs.rm(root, { recursive: true, force: true }))
   let created = 0
   const fakeClient = { on() {}, destroy(cb?: () => void) { cb?.() } } as unknown as NonNullable<TorrentEngine["client"]>

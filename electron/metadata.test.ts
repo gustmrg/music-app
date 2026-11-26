@@ -17,7 +17,7 @@ function present<T>(value: T | null | undefined): T {
 }
 
 async function workspace(t: TestContext) {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "local-music-tags-"))
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "playmio-tags-"))
   t.after(() => fs.rm(root, { recursive: true, force: true }))
   const music = path.join(root, "music")
   await fs.mkdir(music)
@@ -97,11 +97,11 @@ test("scanPending reads tags of tracks saved before tag support", async (t) => {
 test("coverResponse serves stored covers and rejects other names", async (t) => {
   const { music, covers } = await workspace(t)
   const { cover } = await readTags(path.join(music, "tagged.mp3"), covers)
-  const ok = await coverResponse(new URL(`local-music://cover/${cover}`), covers)
+  const ok = await coverResponse(new URL(`playmio://cover/${cover}`), covers)
   assert.equal(ok.status, 200)
   assert.equal(ok.headers.get("content-type"), "image/png")
-  assert.equal((await coverResponse(new URL("local-music://cover/..%2Flibrary.json"), covers)).status, 404)
-  assert.equal((await coverResponse(new URL(`local-music://cover/${"0".repeat(64)}.png`), covers)).status, 404)
+  assert.equal((await coverResponse(new URL("playmio://cover/..%2Flibrary.json"), covers)).status, 404)
+  assert.equal((await coverResponse(new URL(`playmio://cover/${"0".repeat(64)}.png`), covers)).status, 404)
 })
 
 test("pruneUnusedCovers deletes only unreferenced cached covers and removeMissing prunes them", async (t) => {
