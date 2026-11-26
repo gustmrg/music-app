@@ -54,7 +54,7 @@ Download the latest installer from the [Releases](https://github.com/gustmrg/pla
 The local library and player work out of the box. External tools are only needed for network features:
 
 - **YouTube:** requires an up-to-date [yt-dlp](https://github.com/yt-dlp/yt-dlp) on your `PATH` ([how to update](docs/installation.md#keep-yt-dlp-up-to-date)). Livestreams also require [ffmpeg](https://ffmpeg.org) on your `PATH`.
-- **Discover:** requires your own **Prowlarr** or **Jackett** (Torznab) instance, configured in **Settings → Indexer**.
+- **Discover:** requires your own **Prowlarr** or **Jackett** (Torznab) instance running separately, configured in **Settings → Indexer** ([setup guide](docs/installation.md#indexer-discover)).
 
 > [!IMPORTANT]
 > The installers are **not signed**. macOS and Windows show a warning the first time you open the app; see how to allow it in [Installation](docs/installation.md#unsigned-app).
@@ -105,7 +105,7 @@ See [Development](docs/development.md) for the project layout and security model
 
 ## Documentation
 
-- [Installation](docs/installation.md) — downloads, unsigned app warnings, updates, and YouTube setup
+- [Installation](docs/installation.md) — downloads, unsigned app warnings, updates, YouTube, and indexer setup
 - [Usage](docs/usage.md) — library, albums, playlists, Discover, YouTube, and current limits
 - [Development](docs/development.md) — scripts, project layout, and security model
 - [Releases](docs/releasing.md) — how versions are tagged and published

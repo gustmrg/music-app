@@ -1,13 +1,14 @@
 import { useState } from "react"
-import { ChevronDown, Compass, Download, ListPlus, Loader2, Play, RefreshCw, Search, ShieldAlert, Square } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { ChevronDown, Compass, Download, ExternalLink, ListPlus, Loader2, Play, RefreshCw, Search, Settings2, ShieldAlert, Square } from "lucide-react"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { cleanTrackTitle, errorMessage, formatSize, type DiscoverResult, type DiscoverSettings, type TorrentExpansion, type TorrentProgress, type Track } from "@/library"
+import { INDEXER_GUIDE_URL, cleanTrackTitle, errorMessage, formatSize, type DiscoverResult, type DiscoverSettings, type TorrentExpansion, type TorrentProgress, type Track } from "@/library"
 
 type Props = {
   settings: DiscoverSettings
   progress: Map<string, TorrentProgress>
   saveFolder: string
+  onOpenIndexerSettings: () => void
   onSaveSettings: (settings: DiscoverSettings) => void
   onPlay: (tracks: Track[], index: number) => void
   onStopped: (infoHash?: string) => void
@@ -27,7 +28,7 @@ const toTrack = (prepared: { id: string; infoHash: string; name: string; fileNam
 
 const indexerHost = (value: string) => { try { return new URL(value).host } catch { return value || "indexador" } }
 
-export function Discover({ settings, progress, saveFolder, onSaveSettings, onPlay, onStopped, notify }: Props) {
+export function Discover({ settings, progress, saveFolder, onOpenIndexerSettings, onSaveSettings, onPlay, onStopped, notify }: Props) {
   const [query, setQuery] = useState("")
   const [results, setResults] = useState<DiscoverResult[]>([])
   const [searching, setSearching] = useState(false)
@@ -134,7 +135,7 @@ export function Discover({ settings, progress, saveFolder, onSaveSettings, onPla
     </div>
 
     {!window.desktop ? <div className="empty-state"><div className="empty-icon"><Compass /></div><h2>Disponível no aplicativo desktop</h2><p>A descoberta por torrents funciona apenas no aplicativo instalado, não na prévia do navegador.</p></div>
-      : !configured ? <div className="empty-state"><div className="empty-icon"><Compass /></div><h2>Conecte um indexador</h2><p>A busca usa o seu Prowlarr ou Jackett. Configure a conexão em Configurações → Indexador para começar a buscar.</p></div>
+      : !configured ? <div className="empty-state"><div className="empty-icon"><Compass /></div><h2>Conecte um indexador</h2><p>A busca usa sua própria instância do Prowlarr ou Jackett (Torznab) rodando separadamente. Instale o indexador, adicione suas fontes e conecte-o nas configurações.</p><div className="empty-actions"><Button onClick={onOpenIndexerSettings}><Settings2 size={16} />Configurar indexador</Button><a className={buttonVariants({ variant: "outline" })} href={INDEXER_GUIDE_URL} target="_blank" rel="noreferrer"><ExternalLink size={15} />Guia de configuração</a></div></div>
         : searching ? <div className="empty-state"><Loader2 className="spin big" size={30} /><p>Buscando em {indexerHost(settings.url)}…</p></div>
           : searched && !results.length ? <div className="empty-state"><div className="empty-icon"><Search /></div><h2>Nenhum resultado</h2><p>Nada encontrado com seeders ativos. Tente outro termo ou verifique as categorias nas configurações.</p></div>
             : !searched ? <div className="empty-state"><div className="empty-icon"><Compass /></div><h2>O que ouvir hoje?</h2><p>Busque um artista ou álbum; os resultados vêm do seu indexador e tocam por stream na hora. Salve na biblioteca o que quiser manter.</p></div>

@@ -385,7 +385,7 @@ export default function App() {
         {!window.desktop ? <p className="browser-notice">No navegador, os arquivos ficam disponíveis apenas nesta sessão. No desktop, sua biblioteca e playlists ficam salvas.</p> : null}
         {notice ? <div className="notice" role="status"><span>{notice}</span><Button variant="ghost" size="icon-xs" aria-label="Fechar aviso" onClick={() => setNotice("")}><X /></Button></div> : null}
         {/* Keep discovery mounted so navigation preserves searches and metadata. */}
-        <div hidden={view !== "discover"}><Discover settings={discover} progress={torrentProgress} saveFolder={library.saveFolder} onSaveSettings={(next) => setLibrary((value) => ({ ...value, discover: next }))} onPlay={(tracks, index) => { registerDiscoverTracks(tracks); play(tracks[index].id, tracks.map((track) => track.id)) }} onStopped={(infoHash) => {
+        <div hidden={view !== "discover"}><Discover settings={discover} progress={torrentProgress} saveFolder={library.saveFolder} onOpenIndexerSettings={() => openSettings("indexer")} onSaveSettings={(next) => setLibrary((value) => ({ ...value, discover: next }))} onPlay={(tracks, index) => { registerDiscoverTracks(tracks); play(tracks[index].id, tracks.map((track) => track.id)) }} onStopped={(infoHash) => {
           const stopped = new Set(discoverTracks.filter((track) => !infoHash || track.infoHash === infoHash).map((track) => track.id))
           setDiscoverTracks((tracks) => tracks.filter((track) => !stopped.has(track.id)))
           setQueue((ids) => ids.filter((id) => !stopped.has(id)))
