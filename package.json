@@ -1,9 +1,9 @@
 {
-  "name": "cloud-music-desktop",
-  "desktopName": "cloud-music-desktop.desktop",
-  "version": "0.3.0",
+  "name": "playmio",
+  "desktopName": "playmio.desktop",
+  "version": "0.0.0",
   "description": "Desktop music player for your local files, torrents from your own indexer, and YouTube.",
-  "homepage": "https://github.com/gustmrg/music-app#readme",
+  "homepage": "https://github.com/gustmrg/playmio#readme",
   "author": "Gustavo Miranda",
   "license": "MIT",
   "private": true,
@@ -49,10 +49,10 @@
     "wait-on": "^8.0.3"
   },
   "build": {
-    "appId": "com.cloudmusic.desktop",
-    "productName": "Local Music",
+    "appId": "com.playmio.desktop",
+    "productName": "Playmio",
     "icon": "build/icon.png",
-    "artifactName": "local-music-${version}-${os}-${arch}.${ext}",
+    "artifactName": "playmio-${version}-${os}-${arch}.${ext}",
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
@@ -76,7 +76,7 @@
       ],
       "category": "AudioVideo",
       "maintainer": "Gustavo Miranda",
-      "synopsis": "Player for your local music and playlists."
+      "synopsis": "Desktop music player for your local library, torrents, and YouTube."
     }
   }
 }

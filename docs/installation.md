@@ -1,12 +1,12 @@
 # Installation
 
-The installers are on the [Releases](https://github.com/gustmrg/music-app/releases) page. Each release also includes a `SHA256SUMS.txt`.
+The installers are on the [Releases](https://github.com/gustmrg/playmio/releases) page. Each release also includes a `SHA256SUMS.txt`.
 
 | System | File | Architecture |
 | --- | --- | --- |
-| macOS | `local-music-<version>-mac-arm64.dmg` | Apple Silicon, macOS 13 or later |
-| Windows | `local-music-<version>-win-x64.exe` | x64 |
-| Linux | `local-music-<version>-linux-<arch>.AppImage` or `.deb` | x64 |
+| macOS | `playmio-<version>-mac-arm64.dmg` | Apple Silicon, macOS 13 or later |
+| Windows | `playmio-<version>-win-x64.exe` | x64 |
+| Linux | `playmio-<version>-linux-<arch>.AppImage` or `.deb` | x64 |
 
 To verify a download, run `sha256sum -c SHA256SUMS.txt --ignore-missing` (Linux), `shasum -a 256 -c SHA256SUMS.txt --ignore-missing` (macOS), or compare against `Get-FileHash <file>` (Windows).
 
@@ -16,13 +16,13 @@ The installers are **not signed** (no Apple developer certificate and no Windows
 
 ### macOS
 
-Gatekeeper blocks the first launch. After dragging **Local Music** to Applications, use one of these options:
+Gatekeeper blocks the first launch. After dragging **Playmio** to Applications, use one of these options:
 
 - Open the app, dismiss the warning, go to **System Settings → Privacy & Security**, and click **Open Anyway**.
 - Or remove the quarantine attribute from the terminal:
 
   ```bash
-  xattr -cr "/Applications/Local Music.app"
+  xattr -cr "/Applications/Playmio.app"
   ```
 
 If macOS says the app "is damaged and can't be opened," it is the same block, and the command above fixes it.
@@ -36,11 +36,11 @@ SmartScreen shows "Windows protected your PC." Click **More info**, then **Run a
 - **AppImage:** make the file executable and run it.
 
   ```bash
-  chmod +x local-music-*.AppImage
-  ./local-music-*.AppImage
+  chmod +x playmio-*.AppImage
+  ./playmio-*.AppImage
   ```
 
-- **deb:** `sudo apt install ./local-music-*.deb`.
+- **deb:** `sudo apt install ./playmio-*.deb`.
 
 ## Updates
 

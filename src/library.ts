@@ -40,7 +40,7 @@ export function filterTracks(tracks: Track[], search: string) {
   const query = normalize(search.trim())
   return query ? tracks.filter((track) => normalize(`${track.title} ${track.artist ?? ""} ${track.album ?? ""} ${track.path}`).includes(query)) : tracks
 }
-export const coverUrl = (track?: { cover?: string }) => track?.cover ? `local-music://cover/${track.cover}` : undefined
+export const coverUrl = (track?: { cover?: string }) => track?.cover ? `playmio://cover/${track.cover}` : undefined
 // YouTube tracks have no tags; their channel stands in for the artist.
 export const trackArtist = (track: Track) => track.artist || (track.source === "youtube" ? track.folder : "")
 export function applyTagEdit(track: Track, edit?: TagEdit): Track {

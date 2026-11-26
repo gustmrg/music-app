@@ -1,6 +1,6 @@
 <div align="center">
-  <img src="public/icon.png" alt="Local Music" width="64" height="64" />
-  <h1>Local Music</h1>
+  <img src="public/icon.png" alt="Playmio" width="64" height="64" />
+  <h1>Playmio</h1>
   <p><strong>A desktop music player built around your own library.</strong></p>
   <p>
     Play local audio files from watched folders, find and save albums through your own
@@ -41,7 +41,7 @@ The library starts empty and holds only what you explicitly add.
 
 ## Installation
 
-Download the latest installer from the [Releases](https://github.com/gustmrg/music-app/releases) page (each release includes a `SHA256SUMS.txt` file for verification):
+Download the latest installer from the [Releases](https://github.com/gustmrg/playmio/releases) page (each release includes a `SHA256SUMS.txt` file for verification):
 
 | Platform | Package | Architecture |
 | --- | --- | --- |
@@ -70,7 +70,7 @@ The local library and player work out of the box. External tools are only needed
 | --- | --- |
 | **Desktop runtime** | Electron 45 (TypeScript main process & sandboxed preload bundled with esbuild) |
 | **Interface** | React 19, Vite, TypeScript, Tailwind CSS v4, Base UI, Lucide |
-| **Audio & metadata** | `HTMLAudioElement`, custom `local-music://` protocol (byte-range streaming), `music-metadata` |
+| **Audio & metadata** | `HTMLAudioElement`, custom `playmio://` protocol (byte-range streaming), `music-metadata` |
 | **Integrations** | `webtorrent`, Prowlarr / Torznab XML API, `yt-dlp`, `ffmpeg` |
 
 ---

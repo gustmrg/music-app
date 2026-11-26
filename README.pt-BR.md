@@ -1,6 +1,6 @@
 <div align="center">
-  <img src="public/icon.png" alt="Local Music" width="64" height="64" />
-  <h1>Local Music</h1>
+  <img src="public/icon.png" alt="Playmio" width="64" height="64" />
+  <h1>Playmio</h1>
   <p><strong>Um player de música para desktop construído em torno da sua própria biblioteca.</strong></p>
   <p>
     Ouça arquivos de áudio locais em pastas monitoradas, encontre e salve álbuns pelo seu próprio
@@ -41,7 +41,7 @@ A biblioteca começa vazia e só tem o que você adicionar explicitamente.
 
 ## Instalação
 
-Baixe o instalador mais recente na página de [Releases](https://github.com/gustmrg/music-app/releases) (cada release inclui um arquivo `SHA256SUMS.txt` para verificação):
+Baixe o instalador mais recente na página de [Releases](https://github.com/gustmrg/playmio/releases) (cada release inclui um arquivo `SHA256SUMS.txt` para verificação):
 
 | Plataforma | Pacote | Arquitetura |
 | --- | --- | --- |
@@ -70,7 +70,7 @@ A biblioteca local e o player funcionam sem nada extra. Ferramentas externas sã
 | --- | --- |
 | **Runtime desktop** | Electron 45 (processo principal em TypeScript e preload em sandbox empacotados com esbuild) |
 | **Interface** | React 19, Vite, TypeScript, Tailwind CSS v4, Base UI, Lucide |
-| **Áudio e metadados** | `HTMLAudioElement`, protocolo próprio `local-music://` (streaming com byte-range), `music-metadata` |
+| **Áudio e metadados** | `HTMLAudioElement`, protocolo próprio `playmio://` (streaming com byte-range), `music-metadata` |
 | **Integrações** | `webtorrent`, API XML Prowlarr / Torznab, `yt-dlp`, `ffmpeg` |
 
 ---

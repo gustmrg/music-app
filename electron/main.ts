@@ -25,7 +25,7 @@ let watchers: FolderWatchers | undefined
 let ready: Promise<Library>
 let operations: Promise<unknown> = Promise.resolve()
 protocol.registerSchemesAsPrivileged([
-  { scheme: "local-music", privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } },
+  { scheme: "playmio", privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } },
 ])
 
 function trusted(event: IpcMainEvent | IpcMainInvokeEvent) {
@@ -74,7 +74,7 @@ function handleConcurrent<C extends InvokeChannel>(channel: C, action: Handler<C
 function createWindow() {
   const win = new BrowserWindow({
     width: 1280, height: 820, minWidth: 820, minHeight: 600,
-    show: false, frame: false, backgroundColor: "#131316", title: "Local Music",
+    show: false, frame: false, backgroundColor: "#131316", title: "Playmio",
     // Vite copies public/icon.png into dist; build resources are not included in app.asar.
     icon: path.join(import.meta.dirname, isDev ? "../build/icon.png" : "../dist/icon.png"),
     webPreferences: { preload: path.join(import.meta.dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true },
@@ -152,7 +152,7 @@ const STREAM_CACHE_TTL = 4 * 60 * 60 * 1000
 const lives = new LiveStreams()
 let ffmpegCheck: Promise<boolean> | undefined
 
-// Shared by the resolve IPC and the local-music://live/ route. yt-dlp can
+// Shared by the resolve IPC and the playmio://live/ route. yt-dlp can
 // take seconds, so this runs outside the library queue, and concurrent calls
 // for one track share one run. `fresh` skips the cache, e.g. after a live's
 // manifest expired.
@@ -208,11 +208,11 @@ handleConcurrent("discover:search", (_win, query) => searchDiscover(library.pref
 handleConcurrent("discover:test", (_win, settings) => testDiscover(cleanDiscoverSettings(settings ?? library.preferences.discover)))
 
 // Torrent streaming: expand shows the files inside a torrent; prepare
-// registers the virtual track that local-music://track/<id> serves.
+// registers the virtual track that playmio://track/<id> serves.
 handleConcurrent("torrent:expand", (_win, source) => engine.expand(source))
 handleConcurrent("torrent:prepare", async (_win, source, fileIndex) => {
   const prepared = await engine.prepare(source, fileIndex)
-  return { ...prepared, url: `local-music://track/${prepared.id}` }
+  return { ...prepared, url: `playmio://track/${prepared.id}` }
 })
 handleConcurrent("torrent:release", (_win, id) => { engine.release(id) })
 handleConcurrent("torrent:stop-one", (_win, infoHash) => engine.stop(infoHash))
@@ -235,7 +235,7 @@ function reconcileFolders(scopes: string[]) {
 function defaultSaveFolder() {
   let music: string
   try { music = app.getPath("music") } catch { music = path.join(app.getPath("home"), "Music") }
-  return path.join(music, "Local Music")
+  return path.join(music, "Playmio")
 }
 
 const ENCRYPTED_SECRET_PREFIX = "enc:v1:"
@@ -284,7 +284,7 @@ app.whenReady().then(() => {
   }
   // Stream-only posture: nothing from a previous session is ever seeded again.
   engine.resetCache().catch(() => {})
-  protocol.handle("local-music", async (request) => {
+  protocol.handle("playmio", async (request) => {
     try {
       await ready
       const url = new URL(request.url)

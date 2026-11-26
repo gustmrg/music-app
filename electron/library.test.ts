@@ -15,7 +15,7 @@ function present<T>(value: T | null | undefined): T {
 }
 
 async function fixture(t: TestContext) {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "local-music-test-"))
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "playmio-test-"))
   t.after(() => fs.rm(root, { recursive: true, force: true }))
   const music = path.join(root, "Músicas")
   await fs.mkdir(path.join(music, "Álbum"), { recursive: true })
@@ -111,7 +111,7 @@ test("ignores network paths and remote protocols when parsing local playlists", 
 test("serves full audio, exact byte ranges, suffix ranges, and HEAD without reading the whole file", async (t) => {
   const { library, files } = await fixture(t)
   const { imported } = await library.addFiles(files)
-  const url = `local-music://track/${imported[0]}`
+  const url = `playmio://track/${imported[0]}`
   const full = await audioResponse(new Request(url), library)
   assert.equal(full.status, 200)
   assert.equal(await full.text(), "original audio bytes")
@@ -131,7 +131,7 @@ test("serves full audio, exact byte ranges, suffix ranges, and HEAD without read
     assert.equal(response.headers.get("Content-Range"), "bytes */20")
   }
   assert.equal((await audioResponse(new Request(url, { method: "POST" }), library)).status, 403)
-  assert.equal((await audioResponse(new Request("local-music://track/unknown"), library)).status, 403)
+  assert.equal((await audioResponse(new Request("playmio://track/unknown"), library)).status, 403)
 })
 
 test("keeps the save folder out of renderer preferences and falls back to the default", async (t) => {

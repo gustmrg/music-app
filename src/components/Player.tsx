@@ -30,7 +30,7 @@ export function Player({ ref, onPlayingChange, track, request, liked, volume, mo
   const [resolving, setResolving] = useState(false)
   const [buffering, setBuffering] = useState(false)
   // Lives have no duration and never end; they stream from the main
-  // process through ffmpeg at local-music://live/<id>.
+  // process through ffmpeg at playmio://live/<id>.
   const [live, setLive] = useState(false)
   const [connecting, setConnecting] = useState(false)
   const retries = useRef(0)
@@ -46,7 +46,7 @@ export function Player({ ref, onPlayingChange, track, request, liked, volume, mo
   const [reload, setReload] = useState(0)
   const isYouTube = track?.source === "youtube"
   const isTorrent = track?.source === "torrent"
-  const source = track && !isYouTube ? track.url ?? `local-music://track/${track.id}` : undefined
+  const source = track && !isYouTube ? track.url ?? `playmio://track/${track.id}` : undefined
   const trackId = track?.id
   const subtitle = isTorrent
     ? buffering ? "Buscando na rede…" : `Torrent · ${Math.round((torrentStatus?.progress ?? 0) * 100)}% · ${torrentStatus?.peers ?? 0} par(es)`
@@ -61,7 +61,7 @@ export function Player({ ref, onPlayingChange, track, request, liked, volume, mo
     setConnecting(true)
     setProgress(0)
     setBufferedEnd(0)
-    element.src = `local-music://live/${id}?session=${Date.now()}`
+    element.src = `playmio://live/${id}?session=${Date.now()}`
     element.load()
     void element.play().catch(() => { /* failures arrive as error events */ })
   }

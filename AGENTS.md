@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Local Music is an Electron music player for local files, torrents from the
+Playmio is an Electron music player for local files, torrents from the
 user's own indexer, and YouTube. The React renderer also supports a limited
 browser mode. Read [development](docs/development.md) and the relevant
 [architecture decisions](docs/adr/README.md) before changing a boundary.
@@ -20,7 +20,7 @@ text consistent with the existing Brazilian Portuguese interface.
   trusted-frame checks. Expose specific bridge methods, never unrestricted
   filesystem access or generic IPC. The sandboxed preload imports runtime
   code only from Electron.
-- The `local-music://` protocol serves registered track and cover identifiers,
+- The `playmio://` protocol serves registered track and cover identifiers,
   never arbitrary renderer-supplied file paths. Preserve byte-range handling
   for local files and torrent audio.
 - Serialize library mutations through the main-process queue. Keep slow
